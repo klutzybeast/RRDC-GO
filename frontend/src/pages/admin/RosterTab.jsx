@@ -108,7 +108,7 @@ export default function RosterTab() {
                             </div>
                             <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                                 {g.campers.map((c) => (
-                                    <div key={c.id} className="flex items-center gap-2 text-sm p-2 rounded-xl bg-slate-50" data-testid={`roster-camper-${c.id}`}>
+                                    <div key={`${g.group_code}-${c.id}`} className="flex items-center gap-2 text-sm p-2 rounded-xl bg-slate-50" data-testid={`roster-camper-${c.id}`}>
                                         <div className="w-7 h-7 rounded-full bg-river-100 text-river-700 flex items-center justify-center font-bold text-[11px]">
                                             {c.first_name?.[0]}{c.last_name?.[0]}
                                         </div>

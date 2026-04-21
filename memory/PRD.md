@@ -64,3 +64,35 @@ Build a multi-user AR Pokemon catching game for Rolling River Day Camp campers o
 
 ## Test Credentials
 See `/app/memory/test_credentials.md` (admin/Camp1993).
+
+---
+
+## Iteration 2 — Roster-driven login + Google Maps (2026-02-21)
+
+### Changes
+- **No more passwords for campers**: login flow is now `Group cards → Camper list → Play button`. Driven by live CamperSnap roster (852 campers / 39 groups).
+- **Per-camper banks** (replaces group-shared bank). Each camper's catches are their own.
+- **Google Maps as main post-login screen** (`/map`). Pokemon spawns render as bobbing markers on hybrid-view Google Map. Tap the marker → AR catch screen.
+- **Admin-configurable camp map pins**: click-to-place on map in Director Panel; spawns pick a random active pin.
+- **Nightly roster sync** via APScheduler at 00:00 America/New_York. Runs on startup if last sync > 12h old. Admin "Sync Now" button for manual refresh.
+- **Director Panel tabs**: Analytics · Roster · Pokemon · Map Pins · Spawns (Campers tab removed).
+- **New login background**: Stingray Bay camp illustration (user-uploaded).
+
+### New API surface
+- `GET /api/groups`, `GET /api/groups/{code}/campers`, `POST /api/camper/login`
+- `POST /api/admin/roster-sync`, `GET /api/admin/roster-status`, `GET /api/admin/roster`
+- `GET/POST/PATCH/DELETE /api/admin/map-pins`, `GET /api/map-pins` (camper view, active only)
+
+### New env vars
+- Backend: `CAMPER_API_URL`, `SYNC_TIMEZONE`
+- Frontend: `REACT_APP_GOOGLE_MAPS_KEY`
+
+### Quality
+- Backend 21/21 pytest pass · all critical frontend flows pass
+- Known minor: React duplicate-key warning on RosterTab (fixed with composite key) · test-id naming `admin-tab-pins` (functional)
+
+### P1 Backlog (new)
+- Nearby-campers battle system (GPS proximity detection between campers in same group)
+- Camper profile picture from CamperSnap (if CamperSnap exposes photos later)
+- Map pin "radius" — only allow catching if camper is within N meters (real Pokemon-Go feel)
+- Daily/weekly leaderboard (per group, per individual)
