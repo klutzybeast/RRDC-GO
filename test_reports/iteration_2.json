@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 2 regression for RRDC GO. Backend: 21/21 pytest pass covering /api/groups, /api/groups/{code}/campers, /api/camper/login (valid+invalid), /auth/me with camper token, /admin/roster, /admin/roster-status, /admin/roster-sync, /admin/map-pins CRUD + active toggle, /api/map-pins (camper view returns only active), spawn flow with pin coords, per-camper bank isolation, admin guards reject camper tokens, /spawn/current requires auth, legacy /auth/login still mounted. Scheduler log confirmed: 'Scheduler started; nightly sync at 00:00 America/New_York' and CamperSnap sync returned 852 campers / 39 groups. Frontend: 39 group cards render with camp background image, B01 shows 18 campers sorted by last_name, search filter works, play button logs in and redirects to /map, Google Maps hybrid view loads correctly (after frontend restart to pick up REACT_APP_GOOGLE_MAPS_KEY), Logout works, /collection shows 'My Pokedex' with camper full name (Colton Ahern). Admin: tabs Analytics/Roster/Pokemon/Map Pins/Spawns present (no legacy Campers tab); Roster tab Sync Now works; Map Pins admin tab loads Google Maps with 'Drop a pin' UI.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminPage tab Map Pins", "issue": "data-testid is 'admin-tab-pins' but spec/test expected 'admin-tab-map-pins'", "selector": "[data-testid='admin-tab-pins']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin / Roster tab", "issues": ["React console warning: 'Encountered two children with the same key 5bf6e170-5ebb-4c4e-8b8d-e49d3f63faf6'. Likely duplicate camper id rendered in roster list — could indicate a roster sync producing two entries with same UUID (different group?) or a missing key prefix in RosterTab. Investigate de-dupe or use composite key."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration2.py", "/app/backend/tests/test_backend.py", "/app/test_reports/pytest/iteration2_results.xml"],
+  "action_items": [
+    "(LOW) Align AdminPage Map Pins tab data-testid: change tab id from 'pins' to 'map-pins' OR update spec — current is functional but inconsistent with test plan testid 'admin-tab-map-pins'.",
+    "(LOW) Investigate React duplicate-key warning on admin Roster tab. Use composite key like `${group_code}-${camper.id}` in RosterTab list rendering, or de-dupe roster API response.",
+    "(INFO) Frontend needed a restart to pick up REACT_APP_GOOGLE_MAPS_KEY after .env change — confirm release process restarts frontend on env updates."
+  ],
+  "critical_code_review_comments": [
+    "server.py maybe_create_spawn correctly attaches latitude/longitude/pin_name when active pins exist; gracefully degrades to None when no pins (per design).",
+    "sync_roster uses uuid5(NAMESPACE_URL, first|last|group_code) — STABLE across re-syncs which is great. However, a camper moving between groups would get a new id and lose their bank — acceptable trade-off but worth documenting.",
+    "/api/admin/roster-sync is admin-protected and synchronous (awaits sync_roster); acceptable for ~1s response with 852 campers.",
+    "Scheduler uses CronTrigger(hour=0, minute=0) with pytz America/New_York — correct.",
+    "/api/camper/login does NOT use brute-force lockout (no check_lockout) since camper_id is a UUID, low risk; OK.",
+    "/api/map-pins (camper view) excludes inactive pins via {active:True} filter — verified in tests.",
+    "All admin endpoints reject camper tokens (get_current_admin checks role=='admin') — verified.",
+    "Mongo _id excluded everywhere via projection {_id:0} — no leaks.",
+    "Minor: /api/admin/roster aggregation does not exclude trailing whitespace/case variance in group_code, but sync normalizes via .upper().strip(). OK."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2.py (created)"],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "95% (all critical flows pass; 1 testid mismatch + 1 React key warning)"},
+  "test_credentials": "Admin: admin/Camp1993. Camper: dynamic — first camper of B01 from CamperSnap roster (e.g., Colton Ahern). camper_id is uuid5-derived stable id.",
+  "seed_data_creation": "Tests create TEST_Pin1 (active), TEST_PinInactive, activate one Pokemon as TEST_LegendarySpawn for catch flow. mongo fixture cleans TEST_-prefixed pins on setup AND teardown. Pokemon TEST_LegendarySpawn left active in DB after run (use admin to deactivate or rely on next iteration's reset).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite is /app/backend/tests/test_iteration2.py (21 tests) plus legacy /app/backend/tests/test_backend.py. IMPORTANT: any module-scoped DB-cleanup fixture must be autouse=True OR be requested by the very first test that depends on its DB state — otherwise pytest's lazy fixture invocation will run cleanup AFTER tests that don't request the fixture (this caused TEST pins to be wiped mid-run). Frontend testids: group-card-<CODE>, camper-row-<id>, camper-search-input, play-camper-<id>, back-to-groups-btn; admin tabs admin-tab-{analytics,roster,pokemon,pins,spawns} (note: 'pins' not 'map-pins'). Frontend was restarted once to pick up REACT_APP_GOOGLE_MAPS_KEY.",
+  "rca of the issue": "Initial test failures in test_spawn_includes_pin_coordinates and test_admin_delete_pin were caused by a TEST FIXTURE BUG (not a product bug): the module-scoped `mongo` fixture had a setup-time `delete_many({name: /^TEST_/})` cleanup, but pytest only invokes a fixture lazily when first requested. Since the first test to request `mongo` was the spawn test, the cleanup ran AFTER pin-creation tests, wiping TEST_Pin1. Fix: marked the fixture autouse=True so it runs before any test in the module. After fix, all 21 tests pass."
+}

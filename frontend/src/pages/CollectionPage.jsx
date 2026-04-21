@@ -43,20 +43,22 @@ export default function CollectionPage() {
                 <div className="flex items-center justify-between mb-6">
                     <Button
                         variant="ghost"
-                        onClick={() => nav("/ar")}
+                        onClick={() => nav("/map")}
                         className="rounded-full hover:bg-white"
-                        data-testid="back-to-ar-btn"
+                        data-testid="back-to-map-btn"
                     >
-                        <ArrowLeft className="w-4 h-4 mr-2" /> Hunt
+                        <ArrowLeft className="w-4 h-4 mr-2" /> Map
                     </Button>
                     <div className="text-right">
-                        <div className="text-xs uppercase tracking-widest font-bold text-slate-500">{user?.group_name}</div>
-                        <div className="font-heading text-sm font-bold text-slate-800">{user?.username}</div>
+                        <div className="text-xs uppercase tracking-widest font-bold text-slate-500">Group {user?.group_name}</div>
+                        <div className="font-heading text-sm font-bold text-slate-800">
+                            {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                        </div>
                     </div>
                 </div>
 
                 <div className="mb-8">
-                    <h1 className="font-heading text-4xl sm:text-5xl font-bold text-slate-900">My Collection</h1>
+                    <h1 className="font-heading text-4xl sm:text-5xl font-bold text-slate-900">My Pokedex</h1>
                     <p className="text-slate-600 mt-2 font-medium">
                         <span data-testid="total-unique">{totalUnique}</span> unique · <span data-testid="total-catches">{totalCatches}</span> total catches
                     </p>
@@ -94,12 +96,12 @@ export default function CollectionPage() {
                 ) : filtered.length === 0 ? (
                     <div className="bg-white rounded-3xl p-10 text-center border border-slate-200" data-testid="empty-collection">
                         <div className="font-heading text-2xl font-bold text-slate-700">No catches yet</div>
-                        <p className="text-slate-500 mt-2">Head back to the hunt and catch your first Pokemon!</p>
+                        <p className="text-slate-500 mt-2">Head back to the map and catch your first Pokemon!</p>
                         <Button
-                            onClick={() => nav("/ar")}
+                            onClick={() => nav("/map")}
                             className="tactile-btn mt-5 rounded-2xl bg-river-500 hover:bg-river-600 text-white font-heading"
                         >
-                            Start Hunting
+                            Back to Map
                         </Button>
                     </div>
                 ) : (

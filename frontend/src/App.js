@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { UserAuthProvider, AdminAuthProvider, useUserAuth, useAdminAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
+import MapPage from "@/pages/MapPage";
 import ARPage from "@/pages/ARPage";
 import CollectionPage from "@/pages/CollectionPage";
 import AdminLoginPage from "@/pages/AdminLoginPage";
@@ -38,6 +39,7 @@ export default function App() {
                     <BrowserRouter>
                         <Routes>
                             <Route path="/" element={<LoginPage />} />
+                            <Route path="/map" element={<UserRoute><MapPage /></UserRoute>} />
                             <Route path="/ar" element={<UserRoute><ARPage /></UserRoute>} />
                             <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
                             <Route path="/admin/login" element={<AdminLoginPage />} />

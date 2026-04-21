@@ -14,6 +14,10 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
+import httpx
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
@@ -26,8 +30,13 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Camp1993")
+CAMPER_API_URL = os.environ.get("CAMPER_API_URL", "https://camp-staff-guide.preview.emergentagent.com/api/groups/campers")
+SYNC_TIMEZONE = os.environ.get("SYNC_TIMEZONE", "America/New_York")
 JWT_ALGO = "HS256"
 ACCESS_TTL_HOURS = 24
+
+# --- Scheduler ---
+scheduler: Optional[AsyncIOScheduler] = None
 
 # --- DB ---
 client = AsyncIOMotorClient(MONGO_URL)
@@ -110,6 +119,61 @@ class SpawnConfig(BaseModel):
     active_hours_end: int = 15
     spawn_ttl_seconds: int = 120
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
+    camp_latitude: float = 40.7128
+    camp_longitude: float = -74.0060
+    camp_default_zoom: int = 17
+
+
+class CamperOut(BaseModel):
+    id: str
+    first_name: str
+    last_name: str
+    group_code: str
+
+
+class GroupSummary(BaseModel):
+    group_code: str
+    camper_count: int
+
+
+class GroupDetail(BaseModel):
+    group_code: str
+    campers: List[CamperOut]
+
+
+class CamperLoginReq(BaseModel):
+    camper_id: str
+
+
+class MapPinOut(BaseModel):
+    id: str
+    name: str
+    latitude: float
+    longitude: float
+    active: bool = True
+
+
+class MapPinReq(BaseModel):
+    name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    active: Optional[bool] = None
+
+
+class RosterStatus(BaseModel):
+    last_synced_at: Optional[datetime] = None
+    camper_count: int = 0
+    group_count: int = 0
+    last_error: Optional[str] = None
+
+
+class MapSpawnOut(BaseModel):
+    spawn_id: str
+    pokemon_name: str
+    rarity: str
+    latitude: float
+    longitude: float
+    expires_at: datetime
 
 
 class CurrentSpawn(BaseModel):
@@ -117,6 +181,9 @@ class CurrentSpawn(BaseModel):
     pokemon: PokemonOut
     started_at: datetime
     expires_at: datetime
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    pin_name: Optional[str] = None
 
 
 class SpawnPollResponse(BaseModel):
@@ -205,12 +272,25 @@ def extract_bearer(request: Request) -> str:
 
 async def get_current_user(request: Request) -> dict:
     payload = decode_token(extract_bearer(request))
-    if payload.get("role") != "user":
-        raise HTTPException(401, "Invalid role")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    return user
+    role = payload.get("role")
+    if role == "camper":
+        camper = await db.campers.find_one({"id": payload["sub"]}, {"_id": 0})
+        if not camper:
+            raise HTTPException(401, "Camper not found")
+        return {
+            "id": camper["id"],
+            "username": f"{camper.get('first_name','').strip()} {camper.get('last_name','').strip()}".strip(),
+            "group_name": camper.get("group_code", ""),
+            "first_name": camper.get("first_name", ""),
+            "last_name": camper.get("last_name", ""),
+            "role": "camper",
+        }
+    if role == "user":
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+        if not user:
+            raise HTTPException(401, "User not found")
+        return user
+    raise HTTPException(401, "Invalid role")
 
 
 async def get_current_admin(request: Request) -> dict:
@@ -318,6 +398,9 @@ async def ensure_indexes():
     await db.catches.create_index("group_id")
     await db.catches.create_index("caught_at")
     await db.group_spawns.create_index("group_id", unique=True)
+    await db.campers.create_index("id", unique=True)
+    await db.campers.create_index("group_code")
+    await db.map_pins.create_index("id", unique=True)
 
 
 @app.on_event("startup")
@@ -326,10 +409,37 @@ async def startup():
     await seed_admin()
     await seed_pokemon_slots()
     await seed_spawn_config()
+    # Auto-sync on startup if never synced or older than 12h
+    try:
+        meta = await db.sync_meta.find_one({"id": "roster"}, {"_id": 0})
+        needs_sync = True
+        if meta and meta.get("last_synced_at"):
+            last = datetime.fromisoformat(meta["last_synced_at"])
+            if now_utc() - last < timedelta(hours=12):
+                needs_sync = False
+        if needs_sync:
+            asyncio.create_task(sync_roster())
+    except Exception as e:
+        logger.error(f"Startup sync check failed: {e}")
+    # Start nightly scheduler
+    global scheduler
+    try:
+        scheduler = AsyncIOScheduler(timezone=pytz.timezone(SYNC_TIMEZONE))
+        scheduler.add_job(sync_roster, CronTrigger(hour=0, minute=0), id="nightly-roster-sync", replace_existing=True)
+        scheduler.start()
+        logger.info(f"Scheduler started; nightly sync at 00:00 {SYNC_TIMEZONE}")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    global scheduler
+    if scheduler:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
     client.close()
 
 
@@ -406,6 +516,15 @@ async def get_or_create_group_state(group_id: str) -> dict:
     return state
 
 
+async def pick_map_pin() -> Optional[dict]:
+    docs = await db.map_pins.aggregate([
+        {"$match": {"active": True}},
+        {"$sample": {"size": 1}},
+        {"$project": {"_id": 0}},
+    ]).to_list(1)
+    return docs[0] if docs else None
+
+
 async def maybe_create_spawn(group_id: str, cfg: dict) -> dict:
     """Return the refreshed group state, creating a spawn if due."""
     state = await get_or_create_group_state(group_id)
@@ -437,13 +556,21 @@ async def maybe_create_spawn(group_id: str, cfg: dict) -> dict:
 
     pokemon = await pick_spawn_pokemon(cfg)
     if not pokemon:
-        # No active pokemon to spawn; push next_spawn_at by 1 min
         await db.group_spawns.update_one(
             {"group_id": group_id},
             {"$set": {"next_spawn_at": (now_utc() + timedelta(minutes=1)).isoformat()}},
         )
         state["next_spawn_at"] = (now_utc() + timedelta(minutes=1)).isoformat()
         return state
+
+    # Pick a map pin (optional - if none, spawn still works without location)
+    pin = await pick_map_pin()
+    lat, lng, pin_name, pin_id = None, None, None, None
+    if pin:
+        lat = pin.get("latitude")
+        lng = pin.get("longitude")
+        pin_name = pin.get("name")
+        pin_id = pin.get("id")
 
     ttl = int(cfg.get("spawn_ttl_seconds", 120))
     spawn = {
@@ -452,6 +579,10 @@ async def maybe_create_spawn(group_id: str, cfg: dict) -> dict:
         "pokemon": pokemon,
         "started_at": now_utc().isoformat(),
         "expires_at": (now_utc() + timedelta(seconds=ttl)).isoformat(),
+        "latitude": lat,
+        "longitude": lng,
+        "pin_name": pin_name,
+        "pin_id": pin_id,
     }
     await db.group_spawns.update_one(
         {"group_id": group_id},
@@ -758,6 +889,9 @@ async def spawn_current(user=Depends(get_current_user)):
             pokemon=pokemon_to_out(cur["pokemon"]),
             started_at=datetime.fromisoformat(cur["started_at"]),
             expires_at=datetime.fromisoformat(cur["expires_at"]),
+            latitude=cur.get("latitude"),
+            longitude=cur.get("longitude"),
+            pin_name=cur.get("pin_name"),
         )
     if state.get("next_spawn_at"):
         resp.next_spawn_at = datetime.fromisoformat(state["next_spawn_at"])
@@ -904,6 +1038,225 @@ async def root():
 @api.get("/health")
 async def health():
     return {"status": "ok", "time": now_utc().isoformat()}
+
+
+# ----------------------
+# CAMPERSNAP ROSTER SYNC
+# ----------------------
+def _camper_id(first_name: str, last_name: str, group_code: str) -> str:
+    """Stable deterministic id so re-sync keeps same identity for a kid."""
+    base = f"{(first_name or '').strip().lower()}|{(last_name or '').strip().lower()}|{(group_code or '').strip().upper()}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"rrdc-camper::{base}"))
+
+
+async def sync_roster() -> dict:
+    """Fetch CamperSnap roster and upsert into campers collection."""
+    started_at = now_utc()
+    logger.info(f"Starting roster sync from {CAMPER_API_URL}")
+    result = {"camper_count": 0, "group_count": 0, "added": 0, "updated": 0, "removed": 0, "error": None}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as hx:
+            r = await hx.get(CAMPER_API_URL)
+            r.raise_for_status()
+            data = r.json()
+        groups = data.get("groups") or {}
+        seen_ids = set()
+        added = 0
+        updated = 0
+        for group_code, campers in groups.items():
+            gc = (group_code or "").upper().strip()
+            if not gc:
+                continue
+            for c in campers:
+                first = (c.get("first_name") or "").strip()
+                last = (c.get("last_name") or "").strip()
+                if not first and not last:
+                    continue
+                cid = _camper_id(first, last, gc)
+                seen_ids.add(cid)
+                existing = await db.campers.find_one({"id": cid}, {"_id": 0})
+                doc = {
+                    "id": cid,
+                    "first_name": first,
+                    "last_name": last,
+                    "group_code": gc,
+                    "updated_at": now_utc().isoformat(),
+                }
+                if existing:
+                    await db.campers.update_one({"id": cid}, {"$set": doc})
+                    updated += 1
+                else:
+                    doc["created_at"] = now_utc().isoformat()
+                    await db.campers.insert_one(doc)
+                    added += 1
+        removed = 0
+        if seen_ids:
+            del_res = await db.campers.delete_many({"id": {"$nin": list(seen_ids)}})
+            removed = del_res.deleted_count
+
+        total = await db.campers.count_documents({})
+        groups_count = len(groups)
+        await db.sync_meta.update_one(
+            {"id": "roster"},
+            {"$set": {
+                "last_synced_at": now_utc().isoformat(),
+                "camper_count": total,
+                "group_count": groups_count,
+                "last_error": None,
+                "last_duration_ms": int((now_utc() - started_at).total_seconds() * 1000),
+            }},
+            upsert=True,
+        )
+        result.update({"camper_count": total, "group_count": groups_count, "added": added, "updated": updated, "removed": removed})
+        logger.info(f"Roster sync complete: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Roster sync failed: {e}")
+        await db.sync_meta.update_one(
+            {"id": "roster"},
+            {"$set": {"last_error": str(e), "last_error_at": now_utc().isoformat()}},
+            upsert=True,
+        )
+        result["error"] = str(e)
+        return result
+
+
+# ----------------------
+# PUBLIC - GROUPS & CAMPERS (for login flow)
+# ----------------------
+@api.get("/groups", response_model=List[GroupSummary])
+async def public_groups():
+    pipeline = [
+        {"$group": {"_id": "$group_code", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    out = []
+    async for g in db.campers.aggregate(pipeline):
+        out.append(GroupSummary(group_code=g["_id"], camper_count=g["count"]))
+    return out
+
+
+@api.get("/groups/{group_code}/campers", response_model=List[CamperOut])
+async def public_group_campers(group_code: str):
+    code = group_code.upper().strip()
+    out = []
+    async for c in db.campers.find({"group_code": code}, {"_id": 0}).sort([("last_name", 1), ("first_name", 1)]):
+        out.append(CamperOut(
+            id=c["id"],
+            first_name=c.get("first_name", ""),
+            last_name=c.get("last_name", ""),
+            group_code=c.get("group_code", ""),
+        ))
+    return out
+
+
+@api.post("/camper/login", response_model=TokenResponse)
+async def camper_login(req: CamperLoginReq):
+    camper = await db.campers.find_one({"id": req.camper_id}, {"_id": 0})
+    if not camper:
+        raise HTTPException(404, "Camper not found")
+    token = create_token(camper["id"], "camper", {"group_code": camper.get("group_code", ""), "name": f"{camper.get('first_name','')} {camper.get('last_name','')}".strip()})
+    return TokenResponse(access_token=token)
+
+
+# ----------------------
+# ADMIN - ROSTER
+# ----------------------
+@api.get("/admin/roster-status", response_model=RosterStatus)
+async def admin_roster_status(admin=Depends(get_current_admin)):
+    meta = await db.sync_meta.find_one({"id": "roster"}, {"_id": 0}) or {}
+    return RosterStatus(
+        last_synced_at=datetime.fromisoformat(meta["last_synced_at"]) if meta.get("last_synced_at") else None,
+        camper_count=int(meta.get("camper_count", 0) or await db.campers.count_documents({})),
+        group_count=int(meta.get("group_count", 0)),
+        last_error=meta.get("last_error"),
+    )
+
+
+@api.post("/admin/roster-sync")
+async def admin_roster_sync(admin=Depends(get_current_admin)):
+    result = await sync_roster()
+    return result
+
+
+@api.get("/admin/roster")
+async def admin_roster_list(admin=Depends(get_current_admin)):
+    pipeline = [
+        {"$group": {"_id": "$group_code", "campers": {"$push": {"id": "$id", "first_name": "$first_name", "last_name": "$last_name"}}, "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    out = []
+    async for g in db.campers.aggregate(pipeline):
+        campers = sorted(g["campers"], key=lambda x: (x.get("last_name", ""), x.get("first_name", "")))
+        out.append({"group_code": g["_id"], "count": g["count"], "campers": campers})
+    return out
+
+
+# ----------------------
+# ADMIN - MAP PINS
+# ----------------------
+@api.get("/admin/map-pins", response_model=List[MapPinOut])
+async def admin_list_pins(admin=Depends(get_current_admin)):
+    out = []
+    async for p in db.map_pins.find({}, {"_id": 0}).sort("name", 1):
+        out.append(MapPinOut(
+            id=p["id"],
+            name=p.get("name", ""),
+            latitude=float(p.get("latitude", 0)),
+            longitude=float(p.get("longitude", 0)),
+            active=bool(p.get("active", True)),
+        ))
+    return out
+
+
+@api.post("/admin/map-pins", response_model=MapPinOut)
+async def admin_create_pin(req: MapPinReq, admin=Depends(get_current_admin)):
+    if req.latitude is None or req.longitude is None:
+        raise HTTPException(400, "latitude/longitude required")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": req.name or "Camp pin",
+        "latitude": float(req.latitude),
+        "longitude": float(req.longitude),
+        "active": True if req.active is None else bool(req.active),
+        "created_at": now_utc().isoformat(),
+    }
+    await db.map_pins.insert_one(doc)
+    return MapPinOut(id=doc["id"], name=doc["name"], latitude=doc["latitude"], longitude=doc["longitude"], active=doc["active"])
+
+
+@api.patch("/admin/map-pins/{pin_id}", response_model=MapPinOut)
+async def admin_update_pin(pin_id: str, req: MapPinReq, admin=Depends(get_current_admin)):
+    updates = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "No changes")
+    res = await db.map_pins.update_one({"id": pin_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Pin not found")
+    p = await db.map_pins.find_one({"id": pin_id}, {"_id": 0})
+    return MapPinOut(id=p["id"], name=p.get("name", ""), latitude=float(p["latitude"]), longitude=float(p["longitude"]), active=bool(p.get("active", True)))
+
+
+@api.delete("/admin/map-pins/{pin_id}")
+async def admin_delete_pin(pin_id: str, admin=Depends(get_current_admin)):
+    res = await db.map_pins.delete_one({"id": pin_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Pin not found")
+    return {"ok": True}
+
+
+@api.get("/map-pins", response_model=List[MapPinOut])
+async def user_list_pins(user=Depends(get_current_user)):
+    out = []
+    async for p in db.map_pins.find({"active": True}, {"_id": 0}):
+        out.append(MapPinOut(
+            id=p["id"],
+            name=p.get("name", ""),
+            latitude=float(p.get("latitude", 0)),
+            longitude=float(p.get("longitude", 0)),
+            active=True,
+        ))
+    return out
 
 
 # Mount router

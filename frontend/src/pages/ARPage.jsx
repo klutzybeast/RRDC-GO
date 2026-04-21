@@ -120,6 +120,14 @@ export default function ARPage() {
         return () => clearInterval(pollRef.current);
     }, [poll]);
 
+    // If no spawn exists on mount, redirect back to map
+    useEffect(() => {
+        const t = setTimeout(() => {
+            if (!spawn && !result) nav("/map");
+        }, 3000);
+        return () => clearTimeout(t);
+    }, [spawn, result, nav]);
+
     const throwBall = async () => {
         if (!spawn || throwing) return;
         setThrowing(true);
@@ -134,10 +142,12 @@ export default function ARPage() {
                 prevSpawnRef.current = null;
             } else {
                 setFlash(res.data.message || "Got away!");
-                setTimeout(() => setFlash(""), 1800);
+                setTimeout(() => {
+                    setFlash("");
+                    nav("/map");
+                }, 1800);
                 setSpawn(null);
                 prevSpawnRef.current = null;
-                await poll();
             }
         } catch (e) {
             toast.error(formatApiError(e));
@@ -159,7 +169,7 @@ export default function ARPage() {
         try { await userApi.post("/spawn/flee"); } catch {}
         setSpawn(null);
         prevSpawnRef.current = null;
-        poll();
+        nav("/map");
     };
 
     const handleLogout = async () => {
@@ -197,17 +207,20 @@ export default function ARPage() {
             <div className="ar-ui">
                 {/* Top bar */}
                 <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2">
-                    <div className="glass-dark rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2" data-testid="group-badge">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                        {user?.group_name || user?.username}
-                    </div>
+                    <button
+                        onClick={() => nav("/map")}
+                        className="glass-dark rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2"
+                        data-testid="back-to-map-btn"
+                    >
+                        ← Map
+                    </button>
                     <div className="flex gap-2">
                         <button
                             onClick={() => nav("/collection")}
                             className="glass-dark rounded-full px-3 py-2 text-sm font-bold flex items-center gap-2"
                             data-testid="open-collection-btn"
                         >
-                            <BackpackIcon className="w-4 h-4" /> Collection
+                            <BackpackIcon className="w-4 h-4" /> Pokedex
                         </button>
                         <button
                             onClick={handleLogout}
@@ -323,7 +336,7 @@ export default function ARPage() {
             <CatchSuccessModal
                 open={!!result}
                 result={result}
-                onClose={() => setResult(null)}
+                onClose={() => { setResult(null); nav("/map"); }}
                 onGoToCollection={() => { setResult(null); nav("/collection"); }}
             />
         </div>

@@ -26,10 +26,10 @@ export function UserAuthProvider({ children }) {
         fetchMe();
     }, [fetchMe]);
 
-    const login = async (username, password) => {
+    const loginCamper = async (camperId) => {
         setError("");
         try {
-            const res = await userApi.post("/auth/login", { username, password });
+            const res = await userApi.post("/camper/login", { camper_id: camperId });
             tokenStore.setUser(res.data.access_token);
             await fetchMe();
             return true;
@@ -46,7 +46,7 @@ export function UserAuthProvider({ children }) {
     };
 
     return (
-        <UserAuthCtx.Provider value={{ user, error, login, logout, refresh: fetchMe }}>
+        <UserAuthCtx.Provider value={{ user, error, loginCamper, logout, refresh: fetchMe }}>
             {children}
         </UserAuthCtx.Provider>
     );
