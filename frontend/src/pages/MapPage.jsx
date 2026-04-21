@@ -1,15 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GoogleMap, LoadScript, Marker, OverlayView } from "@react-google-maps/api";
+import { GoogleMap, Marker, OverlayView } from "@react-google-maps/api";
 import { motion } from "framer-motion";
 import { userApi, formatApiError } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
+import { useGoogleMaps } from "../contexts/GoogleMapsContext";
 import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 
-const GOOGLE_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
 
 const rarityColor = {
@@ -23,6 +23,20 @@ const mapStyles = [
     { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
     { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
+
+// Detect if we're inside an iframe without geolocation permission (Emergent preview)
+function isInRestrictedFrame() {
+    try {
+        if (window.top !== window.self) {
+            // Feature policy may block geolocation in iframes
+            if (document.featurePolicy && typeof document.featurePolicy.allowsFeature === "function") {
+                return !document.featurePolicy.allowsFeature("geolocation");
+            }
+            return true; // unknown — assume restricted
+        }
+    } catch { return true; }
+    return false;
+}
 
 function Countdown({ until }) {
     const [, setTick] = useState(0);
@@ -40,15 +54,17 @@ function Countdown({ until }) {
 
 export default function MapPage() {
     const { user, logout } = useUserAuth();
+    const { isLoaded, loadError } = useGoogleMaps();
     const nav = useNavigate();
     const [spawn, setSpawn] = useState(null);
     const [nextSpawnAt, setNextSpawnAt] = useState(null);
     const [enabled, setEnabled] = useState(true);
     const [pins, setPins] = useState([]);
-    const [center, setCenter] = useState({ lat: 40.7128, lng: -74.0060 });
-    const [zoom, setZoom] = useState(17);
+    const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
+    const [zoom, setZoom] = useState(18);
     const [myLocation, setMyLocation] = useState(null);
     const [geoError, setGeoError] = useState("");
+    const [geoBlocked, setGeoBlocked] = useState(false);
     const mapRef = useRef(null);
     const pollRef = useRef(null);
     const prevSpawnRef = useRef(null);
@@ -109,22 +125,29 @@ export default function MapPage() {
             setGeoError("Your browser doesn't support location.");
             return;
         }
+        if (isInRestrictedFrame()) {
+            setGeoBlocked(true);
+            setGeoError("Location is blocked in the preview. Open this app directly in Safari (or add to Home Screen) to use GPS.");
+            return;
+        }
         const id = navigator.geolocation.watchPosition(
             (pos) => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 setMyLocation(loc);
                 setGeoError("");
-                // Auto-pan to camper on first fix
+                setGeoBlocked(false);
                 if (!locatedOnce && mapRef.current) {
                     mapRef.current.panTo(loc);
-                    mapRef.current.setZoom(18);
+                    mapRef.current.setZoom(19);
                     setLocatedOnce(true);
                 }
             },
             (err) => {
                 const code = err?.code;
-                if (code === 1) setGeoError("Location blocked. Tap the 📍 icon in the browser address bar to allow.");
-                else if (code === 2) setGeoError("Can't get your location. Try moving outside.");
+                if (code === 1) {
+                    setGeoError("Location blocked. Allow location in Safari settings for this site.");
+                    setGeoBlocked(true);
+                } else if (code === 2) setGeoError("Can't get your location. Try moving outside.");
                 else if (code === 3) setGeoError("Location request timed out. Retrying…");
                 else setGeoError(err?.message || "Location unavailable");
             },
@@ -136,20 +159,28 @@ export default function MapPage() {
     const recenterOnMe = () => {
         if (myLocation && mapRef.current) {
             mapRef.current.panTo(myLocation);
-            mapRef.current.setZoom(18);
-        } else if (navigator.geolocation) {
+            mapRef.current.setZoom(19);
+        } else if (navigator.geolocation && !isInRestrictedFrame()) {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     setMyLocation(loc);
+                    setGeoBlocked(false);
+                    setGeoError("");
                     if (mapRef.current) {
                         mapRef.current.panTo(loc);
-                        mapRef.current.setZoom(18);
+                        mapRef.current.setZoom(19);
                     }
                 },
-                (err) => setGeoError(err?.message || "Location unavailable"),
-                { enableHighAccuracy: true }
+                (err) => {
+                    if (err?.code === 1) setGeoBlocked(true);
+                    setGeoError(err?.message || "Location unavailable");
+                },
+                { enableHighAccuracy: true, timeout: 15000 }
             );
+        } else {
+            setGeoBlocked(true);
+            toast.error("Location blocked. Open in Safari to grant GPS permission.");
         }
     };
 
@@ -174,87 +205,87 @@ export default function MapPage() {
 
     return (
         <div className="relative w-full h-screen bg-slate-900" data-testid="map-page">
-            {GOOGLE_KEY ? (
-                <LoadScript googleMapsApiKey={GOOGLE_KEY} loadingElement={<div className="absolute inset-0 flex items-center justify-center text-white">Loading map…</div>}>
-                    <GoogleMap
-                        mapContainerStyle={{ width: "100%", height: "100%" }}
-                        center={campCenter}
-                        zoom={zoom}
-                        options={{
-                            styles: mapStyles,
-                            disableDefaultUI: true,
-                            zoomControl: true,
-                            clickableIcons: false,
-                            gestureHandling: "greedy",
-                            mapTypeId: "hybrid",
-                        }}
-                        onLoad={(m) => (mapRef.current = m)}
-                    >
-                        {/* My location */}
-                        {myLocation && (
-                            <OverlayView position={myLocation} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
-                                <div className="relative" style={{ transform: "translate(-50%, -50%)" }}>
-                                    <div className="w-5 h-5 rounded-full bg-river-500 border-2 border-white shadow-lg" />
-                                    <div className="absolute inset-0 rounded-full bg-river-500/30 animate-ping" />
-                                </div>
-                            </OverlayView>
-                        )}
-
-                        {/* Pins */}
-                        {pins.map((p) => (
-                            <Marker
-                                key={p.id}
-                                position={{ lat: p.latitude, lng: p.longitude }}
-                                title={p.name}
-                                icon={{
-                                    path: window.google?.maps?.SymbolPath?.CIRCLE,
-                                    scale: 6,
-                                    fillColor: "#22C55E",
-                                    fillOpacity: 0.5,
-                                    strokeWeight: 1,
-                                    strokeColor: "#16A34A",
-                                }}
-                            />
-                        ))}
-
-                        {/* Active spawn marker */}
-                        {spawn?.latitude != null && spawn?.longitude != null && (
-                            <OverlayView
-                                position={{ lat: spawn.latitude, lng: spawn.longitude }}
-                                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                            >
-                                <div
-                                    onClick={openCatch}
-                                    className="relative cursor-pointer"
-                                    style={{ transform: "translate(-50%, -100%)" }}
-                                    data-testid="spawn-marker"
-                                >
-                                    <motion.div
-                                        animate={{ y: [0, -8, 0] }}
-                                        transition={{ repeat: Infinity, duration: 1.6 }}
-                                        className="relative"
-                                    >
-                                        <div
-                                            className="w-20 h-20 rounded-full flex items-center justify-center shadow-2xl border-4 border-white"
-                                            style={{ background: rarityColor[spawn.pokemon.rarity] || "#94A3B8" }}
-                                        >
-                                            {spawn.pokemon.image_data_url ? (
-                                                <img src={spawn.pokemon.image_data_url} alt="" className="w-[80%] h-[80%] object-contain" />
-                                            ) : (
-                                                <Sparkles className="w-8 h-8 text-white" />
-                                            )}
-                                        </div>
-                                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent" style={{ borderTopColor: "white" }} />
-                                    </motion.div>
-                                </div>
-                            </OverlayView>
-                        )}
-                    </GoogleMap>
-                </LoadScript>
-            ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-white">
-                    Google Maps key missing. Ask director to configure.
+            {loadError ? (
+                <div className="absolute inset-0 flex items-center justify-center text-white text-center p-6">
+                    <div>
+                        <div className="font-heading text-2xl font-bold mb-2">Map failed to load</div>
+                        <div className="text-sm opacity-80">Check Google Maps API key and network.</div>
+                    </div>
                 </div>
+            ) : !isLoaded ? (
+                <div className="absolute inset-0 flex items-center justify-center text-white">Loading map…</div>
+            ) : (
+                <GoogleMap
+                    mapContainerStyle={{ width: "100%", height: "100%" }}
+                    center={campCenter}
+                    zoom={zoom}
+                    options={{
+                        styles: mapStyles,
+                        disableDefaultUI: true,
+                        zoomControl: true,
+                        clickableIcons: false,
+                        gestureHandling: "greedy",
+                        mapTypeId: "hybrid",
+                    }}
+                    onLoad={(m) => (mapRef.current = m)}
+                >
+                    {myLocation && (
+                        <OverlayView position={myLocation} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+                            <div className="relative" style={{ transform: "translate(-50%, -50%)" }}>
+                                <div className="w-5 h-5 rounded-full bg-river-500 border-2 border-white shadow-lg" />
+                                <div className="absolute inset-0 rounded-full bg-river-500/30 animate-ping" />
+                            </div>
+                        </OverlayView>
+                    )}
+
+                    {pins.map((p) => (
+                        <Marker
+                            key={p.id}
+                            position={{ lat: p.latitude, lng: p.longitude }}
+                            title={p.name}
+                            icon={{
+                                path: window.google?.maps?.SymbolPath?.CIRCLE,
+                                scale: 6,
+                                fillColor: "#22C55E",
+                                fillOpacity: 0.5,
+                                strokeWeight: 1,
+                                strokeColor: "#16A34A",
+                            }}
+                        />
+                    ))}
+
+                    {spawn?.latitude != null && spawn?.longitude != null && (
+                        <OverlayView
+                            position={{ lat: spawn.latitude, lng: spawn.longitude }}
+                            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                        >
+                            <div
+                                onClick={openCatch}
+                                className="relative cursor-pointer"
+                                style={{ transform: "translate(-50%, -100%)" }}
+                                data-testid="spawn-marker"
+                            >
+                                <motion.div
+                                    animate={{ y: [0, -8, 0] }}
+                                    transition={{ repeat: Infinity, duration: 1.6 }}
+                                    className="relative"
+                                >
+                                    <div
+                                        className="w-20 h-20 rounded-full flex items-center justify-center shadow-2xl border-4 border-white"
+                                        style={{ background: rarityColor[spawn.pokemon.rarity] || "#94A3B8" }}
+                                    >
+                                        {spawn.pokemon.image_data_url ? (
+                                            <img src={spawn.pokemon.image_data_url} alt="" className="w-[80%] h-[80%] object-contain" />
+                                        ) : (
+                                            <Sparkles className="w-8 h-8 text-white" />
+                                        )}
+                                    </div>
+                                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent" style={{ borderTopColor: "white" }} />
+                                </motion.div>
+                            </div>
+                        </OverlayView>
+                    )}
+                </GoogleMap>
             )}
 
             {/* Locate me FAB */}
@@ -332,9 +363,17 @@ export default function MapPage() {
                 )}
             </div>
 
-            {geoError && (
-                <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-2 text-xs font-bold max-w-[90%] text-center" data-testid="geo-error">
-                    📍 {geoError}
+            {(geoError || geoBlocked) && (
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-3 text-xs font-bold max-w-[90%] text-center z-20" data-testid="geo-error">
+                    <div>📍 {geoError || "Location permission needed"}</div>
+                    <Button
+                        onClick={recenterOnMe}
+                        size="sm"
+                        className="tactile-btn mt-2 rounded-full h-8 text-xs bg-river-500 hover:bg-river-600 text-white font-bold"
+                        data-testid="enable-location-btn"
+                    >
+                        {myLocation ? "Retry" : "Enable Location"}
+                    </Button>
                 </div>
             )}
         </div>

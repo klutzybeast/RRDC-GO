@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { GoogleMap, LoadScript, Marker } from "@react-google-maps/api";
+import { GoogleMap, Marker } from "@react-google-maps/api";
 import { adminApi, formatApiError } from "../../lib/api";
+import { useGoogleMaps } from "../../contexts/GoogleMapsContext";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -8,12 +9,11 @@ import { Switch } from "../../components/ui/switch";
 import { toast } from "sonner";
 import { Trash2, Plus, MapPin } from "lucide-react";
 
-const GOOGLE_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
-
 export default function MapPinsTab() {
+    const { isLoaded, loadError } = useGoogleMaps();
     const [pins, setPins] = useState([]);
-    const [center, setCenter] = useState({ lat: 40.7128, lng: -74.0060 });
-    const [draft, setDraft] = useState(null); // { lat, lng }
+    const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
+    const [draft, setDraft] = useState(null);
     const [draftName, setDraftName] = useState("");
     const [loading, setLoading] = useState(true);
     const mapRef = useRef(null);
@@ -26,6 +26,11 @@ export default function MapPinsTab() {
             const lat = r.data.reduce((s, p) => s + p.latitude, 0) / r.data.length;
             const lng = r.data.reduce((s, p) => s + p.longitude, 0) / r.data.length;
             setCenter({ lat, lng });
+        } else {
+            try {
+                const c = await adminApi.get("/admin/spawn-config");
+                if (c.data?.camp_latitude) setCenter({ lat: c.data.camp_latitude, lng: c.data.camp_longitude });
+            } catch {}
         }
         setLoading(false);
     };
@@ -83,34 +88,34 @@ export default function MapPinsTab() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white rounded-3xl overflow-hidden border border-slate-200" style={{ minHeight: "500px" }}>
-                    {GOOGLE_KEY ? (
-                        <LoadScript googleMapsApiKey={GOOGLE_KEY}>
-                            <GoogleMap
-                                mapContainerStyle={{ width: "100%", height: "500px" }}
-                                center={center}
-                                zoom={17}
-                                onClick={onMapClick}
-                                onLoad={(m) => (mapRef.current = m)}
-                                options={{ mapTypeId: "hybrid", disableDefaultUI: false, clickableIcons: false }}
-                            >
-                                {pins.map((p) => (
-                                    <Marker
-                                        key={p.id}
-                                        position={{ lat: p.latitude, lng: p.longitude }}
-                                        title={p.name}
-                                        opacity={p.active ? 1 : 0.4}
-                                    />
-                                ))}
-                                {draft && (
-                                    <Marker
-                                        position={{ lat: draft.lat, lng: draft.lng }}
-                                        icon={{ path: window.google?.maps?.SymbolPath?.CIRCLE, scale: 10, fillColor: "#0EA5E9", fillOpacity: 0.8, strokeColor: "#fff", strokeWeight: 2 }}
-                                    />
-                                )}
-                            </GoogleMap>
-                        </LoadScript>
+                    {loadError ? (
+                        <div className="p-10 text-center text-red-600">Google Maps failed to load.</div>
+                    ) : !isLoaded ? (
+                        <div className="p-10 text-center text-slate-500">Loading map…</div>
                     ) : (
-                        <div className="p-10 text-center text-slate-500">Google Maps key missing.</div>
+                        <GoogleMap
+                            mapContainerStyle={{ width: "100%", height: "500px" }}
+                            center={center}
+                            zoom={17}
+                            onClick={onMapClick}
+                            onLoad={(m) => (mapRef.current = m)}
+                            options={{ mapTypeId: "hybrid", disableDefaultUI: false, clickableIcons: false }}
+                        >
+                            {pins.map((p) => (
+                                <Marker
+                                    key={p.id}
+                                    position={{ lat: p.latitude, lng: p.longitude }}
+                                    title={p.name}
+                                    opacity={p.active ? 1 : 0.4}
+                                />
+                            ))}
+                            {draft && (
+                                <Marker
+                                    position={{ lat: draft.lat, lng: draft.lng }}
+                                    icon={{ path: window.google?.maps?.SymbolPath?.CIRCLE, scale: 10, fillColor: "#0EA5E9", fillOpacity: 0.8, strokeColor: "#fff", strokeWeight: 2 }}
+                                />
+                            )}
+                        </GoogleMap>
                     )}
                 </div>
 

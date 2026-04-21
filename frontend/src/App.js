@@ -1,6 +1,7 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { UserAuthProvider, AdminAuthProvider, useUserAuth, useAdminAuth } from "@/contexts/AuthContext";
+import { GoogleMapsProvider } from "@/contexts/GoogleMapsContext";
 import LoginPage from "@/pages/LoginPage";
 import MapPage from "@/pages/MapPage";
 import ARPage from "@/pages/ARPage";
@@ -36,18 +37,20 @@ export default function App() {
         <div className="App">
             <UserAuthProvider>
                 <AdminAuthProvider>
-                    <BrowserRouter>
-                        <Routes>
-                            <Route path="/" element={<LoginPage />} />
-                            <Route path="/map" element={<UserRoute><MapPage /></UserRoute>} />
-                            <Route path="/ar" element={<UserRoute><ARPage /></UserRoute>} />
-                            <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
-                            <Route path="/admin/login" element={<AdminLoginPage />} />
-                            <Route path="/admin/*" element={<AdminRoute><AdminPage /></AdminRoute>} />
-                            <Route path="*" element={<Navigate to="/" replace />} />
-                        </Routes>
-                        <Toaster position="top-center" richColors />
-                    </BrowserRouter>
+                    <GoogleMapsProvider>
+                        <BrowserRouter>
+                            <Routes>
+                                <Route path="/" element={<LoginPage />} />
+                                <Route path="/map" element={<UserRoute><MapPage /></UserRoute>} />
+                                <Route path="/ar" element={<UserRoute><ARPage /></UserRoute>} />
+                                <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
+                                <Route path="/admin/login" element={<AdminLoginPage />} />
+                                <Route path="/admin/*" element={<AdminRoute><AdminPage /></AdminRoute>} />
+                                <Route path="*" element={<Navigate to="/" replace />} />
+                            </Routes>
+                            <Toaster position="top-center" richColors />
+                        </BrowserRouter>
+                    </GoogleMapsProvider>
                 </AdminAuthProvider>
             </UserAuthProvider>
         </div>

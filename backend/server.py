@@ -119,9 +119,9 @@ class SpawnConfig(BaseModel):
     active_hours_end: int = 15
     spawn_ttl_seconds: int = 120
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
-    camp_latitude: float = 40.7128
-    camp_longitude: float = -74.0060
-    camp_default_zoom: int = 17
+    camp_latitude: float = 40.6396
+    camp_longitude: float = -73.6665
+    camp_default_zoom: int = 18
 
 
 class CamperOut(BaseModel):
@@ -1263,9 +1263,9 @@ async def user_list_pins(user=Depends(get_current_user)):
 async def get_camp_center(user=Depends(get_current_user)):
     cfg = await load_spawn_config()
     return {
-        "latitude": float(cfg.get("camp_latitude", 40.7128)),
-        "longitude": float(cfg.get("camp_longitude", -74.0060)),
-        "default_zoom": int(cfg.get("camp_default_zoom", 17)),
+        "latitude": float(cfg.get("camp_latitude", 40.6396)),
+        "longitude": float(cfg.get("camp_longitude", -73.6665)),
+        "default_zoom": int(cfg.get("camp_default_zoom", 18)),
     }
 
 
