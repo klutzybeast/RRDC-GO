@@ -122,12 +122,12 @@ export default function MapPage() {
     const [locatedOnce, setLocatedOnce] = useState(false);
     useEffect(() => {
         if (!navigator.geolocation) {
-            setGeoError("Your browser doesn't support location.");
+            setGeoError("This browser doesn't support location services.");
             return;
         }
         if (isInRestrictedFrame()) {
             setGeoBlocked(true);
-            setGeoError("Location is blocked in the preview. Open this app directly in Safari (or add to Home Screen) to use GPS.");
+            setGeoError("Location is blocked in the preview window. Open RRDC GO directly in your browser (or install to your home screen) to use GPS.");
             return;
         }
         const id = navigator.geolocation.watchPosition(
@@ -145,11 +145,11 @@ export default function MapPage() {
             (err) => {
                 const code = err?.code;
                 if (code === 1) {
-                    setGeoError("Location blocked. Allow location in Safari settings for this site.");
+                    setGeoError("Location permission was denied. Enable it in your browser or device settings for this site.");
                     setGeoBlocked(true);
-                } else if (code === 2) setGeoError("Can't get your location. Try moving outside.");
-                else if (code === 3) setGeoError("Location request timed out. Retrying…");
-                else setGeoError(err?.message || "Location unavailable");
+                } else if (code === 2) setGeoError("Can't get your location. Try moving outside for a better signal.");
+                else if (code === 3) setGeoError("Location request timed out — retrying…");
+                else setGeoError(err?.message || "Location unavailable.");
             },
             { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
         );
@@ -174,13 +174,13 @@ export default function MapPage() {
                 },
                 (err) => {
                     if (err?.code === 1) setGeoBlocked(true);
-                    setGeoError(err?.message || "Location unavailable");
+                    setGeoError(err?.message || "Location unavailable.");
                 },
                 { enableHighAccuracy: true, timeout: 15000 }
             );
         } else {
             setGeoBlocked(true);
-            toast.error("Location blocked. Open in Safari to grant GPS permission.");
+            toast.error("Location blocked. Enable GPS access in your browser or device settings.");
         }
     };
 
@@ -204,7 +204,7 @@ export default function MapPage() {
     const campCenter = myLocation || center;
 
     return (
-        <div className="relative w-full h-screen bg-slate-900" data-testid="map-page">
+        <div className="relative w-full bg-slate-900" style={{ height: "100vh", minHeight: "100dvh" }} data-testid="map-page">
             {loadError ? (
                 <div className="absolute inset-0 flex items-center justify-center text-white text-center p-6">
                     <div>
@@ -299,19 +299,22 @@ export default function MapPage() {
             </button>
 
             {/* Top bar */}
-            <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 z-10 pointer-events-none">
-                <div className="glass-dark rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2 pointer-events-auto" data-testid="camper-badge">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
-                    <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 ml-1">{user?.group_name}</span>
+            <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 pointer-events-none safe-top">
+                <div className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 pointer-events-auto min-w-0" data-testid="camper-badge">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <span className="truncate max-w-[40vw] sm:max-w-none">
+                        {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 ml-1 shrink-0">{user?.group_name}</span>
                 </div>
-                <div className="flex gap-2 pointer-events-auto">
+                <div className="flex gap-1.5 sm:gap-2 pointer-events-auto">
                     <button
                         onClick={() => nav("/collection")}
-                        className="glass-dark rounded-full px-3 py-2 text-sm font-bold flex items-center gap-2"
+                        className="glass-dark rounded-full px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
                         data-testid="open-collection-btn"
                     >
-                        <BackpackIcon className="w-4 h-4" /> My Pokedex
+                        <BackpackIcon className="w-4 h-4" />
+                        <span className="hidden xs:inline">Pokedex</span>
                     </button>
                     <button onClick={handleLogout} className="glass-dark rounded-full p-2" aria-label="Logout" data-testid="logout-btn">
                         <LogOut className="w-4 h-4" />
@@ -320,7 +323,7 @@ export default function MapPage() {
             </div>
 
             {/* Bottom hud */}
-            <div className="absolute bottom-4 left-3 right-3 flex items-end justify-between gap-2 z-10">
+            <div className="absolute bottom-3 left-2 right-2 sm:bottom-4 sm:left-3 sm:right-3 flex items-end justify-between gap-2 z-10 safe-bottom">
                 <div className="glass-dark rounded-2xl px-4 py-3 max-w-[240px]" data-testid="hud-status">
                     {spawn ? (
                         <>

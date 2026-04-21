@@ -69,16 +69,16 @@ export default function LoginPage() {
             <div className="fixed inset-0 bg-gradient-to-b from-sky-950/50 via-sky-900/30 to-emerald-950/60" />
 
             <div className="relative z-10 min-h-screen flex flex-col">
-                <header className="px-4 sm:px-8 pt-6 flex items-center justify-between">
+                <header className="px-4 sm:px-8 pt-4 sm:pt-6 flex items-center justify-between safe-top">
                     <div>
-                        <div className="text-[11px] tracking-[0.32em] uppercase font-bold text-white/80">Rolling River Day Camp</div>
-                        <h1 className="font-heading text-4xl sm:text-5xl font-bold text-white drop-shadow-lg">
+                        <div className="text-[10px] sm:text-[11px] tracking-[0.28em] sm:tracking-[0.32em] uppercase font-bold text-white/80">Rolling River Day Camp</div>
+                        <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
                             RRDC <span className="text-amber-300">GO</span>
                         </h1>
                     </div>
                     <button
                         onClick={() => nav("/admin/login")}
-                        className="glass-dark rounded-full px-4 py-2 text-white text-xs font-bold flex items-center gap-2"
+                        className="glass-dark rounded-full px-3 sm:px-4 py-2 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1.5 sm:gap-2"
                         data-testid="admin-link"
                     >
                         <Shield className="w-3.5 h-3.5" /> Director
@@ -111,7 +111,7 @@ export default function LoginPage() {
                                         </div>
                                     ) : (
                                         <div
-                                            className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-[60vh] overflow-y-auto pr-1"
+                                            className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 sm:gap-3 max-h-[60vh] overflow-y-auto pr-1"
                                             data-testid="groups-grid"
                                         >
                                             {groups.map((g) => (
@@ -202,8 +202,9 @@ export default function LoginPage() {
                         {err && <div className="mt-4 text-red-600 text-sm font-bold" data-testid="login-error">{err}</div>}
                     </motion.div>
                 </div>
-                <footer className="py-4 text-center text-xs text-white/70">
-                    No passwords — just pick your name from your group.
+                <footer className="py-4 text-center text-xs text-white/70 safe-bottom">
+                    No passwords — just pick your name from your group.<br className="sm:hidden"/>
+                    <span className="text-[10px] opacity-80">Works on phone, tablet & desktop.</span>
                 </footer>
             </div>
         </div>

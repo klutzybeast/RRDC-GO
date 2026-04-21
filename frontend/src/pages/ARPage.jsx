@@ -189,7 +189,7 @@ export default function ARPage() {
                         <h2 className="font-heading text-2xl font-bold mb-2">Camera Needed</h2>
                         <p className="text-sm opacity-80 mb-4">
                             {camStatus === "denied"
-                                ? "Please allow camera access in Safari settings to hunt Pokemon."
+                                ? "Please allow camera access in your browser settings to hunt Pokemon."
                                 : camStatus === "unavailable"
                                 ? "Your browser doesn't support camera access."
                                 : camErr || "Requesting camera…"}

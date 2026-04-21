@@ -1,7 +1,14 @@
 {
     "short_name": "RRDC GO",
     "name": "Rolling River Pokemon AR Catcher",
+    "description": "Catch Pokemon around Rolling River Day Camp — on any phone, tablet or laptop.",
     "icons": [
+        {
+            "src": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
+            "type": "image/png",
+            "sizes": "192x192",
+            "purpose": "any maskable"
+        },
         {
             "src": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
             "type": "image/png",
@@ -10,8 +17,11 @@
         }
     ],
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
     "orientation": "any",
     "theme_color": "#0EA5E9",
-    "background_color": "#F8FAFC"
+    "background_color": "#F8FAFC",
+    "categories": ["games", "entertainment"],
+    "prefer_related_applications": false
 }
