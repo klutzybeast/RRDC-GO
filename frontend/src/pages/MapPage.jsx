@@ -104,8 +104,21 @@ export default function MapPage() {
         }).catch(() => {});
     }, []);
 
-    // Watch geolocation — trust the browser, not a pre-check
     const [locatedOnce, setLocatedOnce] = useState(false);
+    const [inIframe] = useState(() => {
+        try { return window.self !== window.top; } catch { return true; }
+    });
+
+    const openInNewTab = () => {
+        const url = window.location.href;
+        try {
+            // Try to break out of the iframe first
+            if (window.top) window.top.location.href = url;
+        } catch {}
+        // Fallback: open in a new tab
+        window.open(url, "_blank", "noopener,noreferrer");
+    };
+
     useEffect(() => {
         if (!navigator.geolocation) {
             setGeoError("This browser doesn't support location services.");
@@ -357,16 +370,34 @@ export default function MapPage() {
             </div>
 
             {(geoError || geoBlocked) && !myLocation && (
-                <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-3 text-xs font-bold max-w-[90%] text-center z-20" data-testid="geo-error">
-                    <div>📍 {geoError || "Location permission needed"}</div>
-                    <Button
-                        onClick={recenterOnMe}
-                        size="sm"
-                        className="tactile-btn mt-2 rounded-full h-8 text-xs bg-river-500 hover:bg-river-600 text-white font-bold"
-                        data-testid="enable-location-btn"
-                    >
-                        Try again
-                    </Button>
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-3 text-xs font-bold max-w-[92%] sm:max-w-md text-center z-20" data-testid="geo-error">
+                    <div className="mb-1">📍 {geoError || "Location permission needed"}</div>
+                    {inIframe && geoBlocked && (
+                        <div className="text-[11px] opacity-80 mb-2 leading-relaxed">
+                            GPS is blocked inside this preview window. Open the app in a full browser tab to use your location.
+                        </div>
+                    )}
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch mt-2 justify-center">
+                        {inIframe && (
+                            <Button
+                                onClick={openInNewTab}
+                                size="sm"
+                                className="tactile-btn rounded-full h-9 text-xs bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold px-4"
+                                data-testid="open-in-browser-btn"
+                            >
+                                Open in full browser
+                            </Button>
+                        )}
+                        <Button
+                            onClick={recenterOnMe}
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full h-9 text-xs bg-white/20 hover:bg-white/30 text-white border-white/40 font-bold px-4"
+                            data-testid="enable-location-btn"
+                        >
+                            Try again
+                        </Button>
+                    </div>
                 </div>
             )}
         </div>
