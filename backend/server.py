@@ -1259,6 +1259,16 @@ async def user_list_pins(user=Depends(get_current_user)):
     return out
 
 
+@api.get("/camp-center")
+async def get_camp_center(user=Depends(get_current_user)):
+    cfg = await load_spawn_config()
+    return {
+        "latitude": float(cfg.get("camp_latitude", 40.7128)),
+        "longitude": float(cfg.get("camp_longitude", -74.0060)),
+        "default_zoom": int(cfg.get("camp_default_zoom", 17)),
+    }
+
+
 # Mount router
 app.include_router(api)
 

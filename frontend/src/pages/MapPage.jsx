@@ -4,7 +4,7 @@ import { GoogleMap, LoadScript, Marker, OverlayView } from "@react-google-maps/a
 import { motion } from "framer-motion";
 import { userApi, formatApiError } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
-import { LogOut, BackpackIcon, MapPin, Sparkles } from "lucide-react";
+import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
@@ -80,7 +80,7 @@ export default function MapPage() {
         return () => clearInterval(pollRef.current);
     }, [poll]);
 
-    // Fetch pins + center the map
+    // Fetch pins + spawn config (for camp center fallback)
     useEffect(() => {
         userApi.get("/map-pins").then((r) => {
             setPins(r.data);
@@ -88,11 +88,22 @@ export default function MapPage() {
                 const lat = r.data.reduce((s, p) => s + p.latitude, 0) / r.data.length;
                 const lng = r.data.reduce((s, p) => s + p.longitude, 0) / r.data.length;
                 setCenter({ lat, lng });
+            } else {
+                // No pins — fall back to admin-configured camp center
+                userApi.get("/spawn/current").catch(() => {});
+            }
+        }).catch(() => {});
+        // Load camp center from public config endpoint
+        userApi.get("/camp-center").then((r) => {
+            if (r.data?.latitude && r.data?.longitude) {
+                setCenter({ lat: r.data.latitude, lng: r.data.longitude });
+                if (r.data.default_zoom) setZoom(r.data.default_zoom);
             }
         }).catch(() => {});
     }, []);
 
     // Watch geolocation
+    const [locatedOnce, setLocatedOnce] = useState(false);
     useEffect(() => {
         if (!navigator.geolocation) {
             setGeoError("Your browser doesn't support location.");
@@ -100,14 +111,47 @@ export default function MapPage() {
         }
         const id = navigator.geolocation.watchPosition(
             (pos) => {
-                setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                setMyLocation(loc);
                 setGeoError("");
+                // Auto-pan to camper on first fix
+                if (!locatedOnce && mapRef.current) {
+                    mapRef.current.panTo(loc);
+                    mapRef.current.setZoom(18);
+                    setLocatedOnce(true);
+                }
             },
-            (err) => setGeoError(err?.message || "Location unavailable"),
-            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+            (err) => {
+                const code = err?.code;
+                if (code === 1) setGeoError("Location blocked. Tap the 📍 icon in the browser address bar to allow.");
+                else if (code === 2) setGeoError("Can't get your location. Try moving outside.");
+                else if (code === 3) setGeoError("Location request timed out. Retrying…");
+                else setGeoError(err?.message || "Location unavailable");
+            },
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
         );
         return () => navigator.geolocation.clearWatch(id);
-    }, []);
+    }, [locatedOnce]);
+
+    const recenterOnMe = () => {
+        if (myLocation && mapRef.current) {
+            mapRef.current.panTo(myLocation);
+            mapRef.current.setZoom(18);
+        } else if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    setMyLocation(loc);
+                    if (mapRef.current) {
+                        mapRef.current.panTo(loc);
+                        mapRef.current.setZoom(18);
+                    }
+                },
+                (err) => setGeoError(err?.message || "Location unavailable"),
+                { enableHighAccuracy: true }
+            );
+        }
+    };
 
     // Recenter when spawn arrives
     useEffect(() => {
@@ -213,6 +257,16 @@ export default function MapPage() {
                 </div>
             )}
 
+            {/* Locate me FAB */}
+            <button
+                onClick={recenterOnMe}
+                className={`absolute bottom-32 right-4 z-10 w-12 h-12 rounded-full flex items-center justify-center shadow-lg tactile-btn ${myLocation ? "bg-white text-river-600" : "bg-slate-300 text-slate-600"}`}
+                title={myLocation ? "Center on me" : "Enable location"}
+                data-testid="locate-me-btn"
+            >
+                <Crosshair className="w-5 h-5" />
+            </button>
+
             {/* Top bar */}
             <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 z-10 pointer-events-none">
                 <div className="glass-dark rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2 pointer-events-auto" data-testid="camper-badge">
@@ -279,7 +333,7 @@ export default function MapPage() {
             </div>
 
             {geoError && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 glass-dark rounded-full px-4 py-2 text-xs font-bold" data-testid="geo-error">
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-2 text-xs font-bold max-w-[90%] text-center" data-testid="geo-error">
                     📍 {geoError}
                 </div>
             )}

@@ -26,6 +26,9 @@ export default function SpawnConfigTab() {
                 active_hours_start: Number(cfg.active_hours_start),
                 active_hours_end: Number(cfg.active_hours_end),
                 spawn_ttl_seconds: Number(cfg.spawn_ttl_seconds),
+                camp_latitude: Number(cfg.camp_latitude || 40.7128),
+                camp_longitude: Number(cfg.camp_longitude || -74.0060),
+                camp_default_zoom: Number(cfg.camp_default_zoom || 17),
                 rarity_weights: Object.fromEntries(RARITIES.map((r) => [r, Number(cfg.rarity_weights?.[r] ?? 0)])),
             });
             toast.success("Spawn config saved");
@@ -76,6 +79,46 @@ export default function SpawnConfigTab() {
                 <div>
                     <Label>Spawn duration (seconds) — how long a Pokemon stays before fleeing</Label>
                     <Input type="number" min="15" max="600" value={cfg.spawn_ttl_seconds} onChange={(e) => setCfg({ ...cfg, spawn_ttl_seconds: e.target.value })} className="rounded-2xl h-11" data-testid="spawn-ttl-input" />
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4 space-y-3">
+                    <div>
+                        <Label className="text-base">Camp map center</Label>
+                        <p className="text-xs text-slate-500">Where the camper's map opens by default (before they grant location).</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <Label className="text-xs">Latitude</Label>
+                            <Input type="number" step="0.000001" value={cfg.camp_latitude ?? ""} onChange={(e) => setCfg({ ...cfg, camp_latitude: e.target.value })} className="rounded-2xl h-11" data-testid="camp-latitude-input" />
+                        </div>
+                        <div>
+                            <Label className="text-xs">Longitude</Label>
+                            <Input type="number" step="0.000001" value={cfg.camp_longitude ?? ""} onChange={(e) => setCfg({ ...cfg, camp_longitude: e.target.value })} className="rounded-2xl h-11" data-testid="camp-longitude-input" />
+                        </div>
+                    </div>
+                    <div>
+                        <Label className="text-xs">Default zoom (14-20)</Label>
+                        <Input type="number" min="10" max="21" value={cfg.camp_default_zoom ?? 17} onChange={(e) => setCfg({ ...cfg, camp_default_zoom: e.target.value })} className="rounded-2xl h-11" data-testid="camp-zoom-input" />
+                    </div>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                            if (!navigator.geolocation) { toast.error("Geolocation not supported"); return; }
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    setCfg({ ...cfg, camp_latitude: pos.coords.latitude.toFixed(6), camp_longitude: pos.coords.longitude.toFixed(6) });
+                                    toast.success("Filled with your current location");
+                                },
+                                (err) => toast.error(err.message || "Location unavailable"),
+                                { enableHighAccuracy: true }
+                            );
+                        }}
+                        className="rounded-2xl"
+                        data-testid="use-my-location-btn"
+                    >
+                        Use my current location
+                    </Button>
                 </div>
 
                 <div>
