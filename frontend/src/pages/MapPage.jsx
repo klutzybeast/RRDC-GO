@@ -24,20 +24,6 @@ const mapStyles = [
     { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
 
-// Detect if we're inside an iframe without geolocation permission (Emergent preview)
-function isInRestrictedFrame() {
-    try {
-        if (window.top !== window.self) {
-            // Feature policy may block geolocation in iframes
-            if (document.featurePolicy && typeof document.featurePolicy.allowsFeature === "function") {
-                return !document.featurePolicy.allowsFeature("geolocation");
-            }
-            return true; // unknown — assume restricted
-        }
-    } catch { return true; }
-    return false;
-}
-
 function Countdown({ until }) {
     const [, setTick] = useState(0);
     useEffect(() => {
@@ -118,16 +104,11 @@ export default function MapPage() {
         }).catch(() => {});
     }, []);
 
-    // Watch geolocation
+    // Watch geolocation — trust the browser, not a pre-check
     const [locatedOnce, setLocatedOnce] = useState(false);
     useEffect(() => {
         if (!navigator.geolocation) {
             setGeoError("This browser doesn't support location services.");
-            return;
-        }
-        if (isInRestrictedFrame()) {
-            setGeoBlocked(true);
-            setGeoError("Location is blocked in the preview window. Open RRDC GO directly in your browser (or install to your home screen) to use GPS.");
             return;
         }
         const id = navigator.geolocation.watchPosition(
@@ -145,13 +126,17 @@ export default function MapPage() {
             (err) => {
                 const code = err?.code;
                 if (code === 1) {
-                    setGeoError("Location permission was denied. Enable it in your browser or device settings for this site.");
                     setGeoBlocked(true);
-                } else if (code === 2) setGeoError("Can't get your location. Try moving outside for a better signal.");
-                else if (code === 3) setGeoError("Location request timed out — retrying…");
-                else setGeoError(err?.message || "Location unavailable.");
+                    setGeoError("Location permission was denied. Enable it in your browser or device settings for this site.");
+                } else if (code === 2) {
+                    setGeoError("Can't get your location. Try moving outside for a better signal.");
+                } else if (code === 3) {
+                    setGeoError("Location request timed out — still trying…");
+                } else {
+                    setGeoError(err?.message || "Location unavailable.");
+                }
             },
-            { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
         );
         return () => navigator.geolocation.clearWatch(id);
     }, [locatedOnce]);
@@ -160,28 +145,33 @@ export default function MapPage() {
         if (myLocation && mapRef.current) {
             mapRef.current.panTo(myLocation);
             mapRef.current.setZoom(19);
-        } else if (navigator.geolocation && !isInRestrictedFrame()) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                    setMyLocation(loc);
-                    setGeoBlocked(false);
-                    setGeoError("");
-                    if (mapRef.current) {
-                        mapRef.current.panTo(loc);
-                        mapRef.current.setZoom(19);
-                    }
-                },
-                (err) => {
-                    if (err?.code === 1) setGeoBlocked(true);
-                    setGeoError(err?.message || "Location unavailable.");
-                },
-                { enableHighAccuracy: true, timeout: 15000 }
-            );
-        } else {
-            setGeoBlocked(true);
-            toast.error("Location blocked. Enable GPS access in your browser or device settings.");
+            return;
         }
+        if (!navigator.geolocation) {
+            toast.error("This browser doesn't support location services.");
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                setMyLocation(loc);
+                setGeoBlocked(false);
+                setGeoError("");
+                if (mapRef.current) {
+                    mapRef.current.panTo(loc);
+                    mapRef.current.setZoom(19);
+                }
+            },
+            (err) => {
+                if (err?.code === 1) {
+                    setGeoBlocked(true);
+                    setGeoError("Location permission was denied. Enable GPS access for this site in your browser or device settings.");
+                } else {
+                    setGeoError(err?.message || "Location unavailable.");
+                }
+            },
+            { enableHighAccuracy: true, timeout: 20000 }
+        );
     };
 
     // Recenter when spawn arrives
@@ -366,7 +356,7 @@ export default function MapPage() {
                 )}
             </div>
 
-            {(geoError || geoBlocked) && (
+            {(geoError || geoBlocked) && !myLocation && (
                 <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-3 text-xs font-bold max-w-[90%] text-center z-20" data-testid="geo-error">
                     <div>📍 {geoError || "Location permission needed"}</div>
                     <Button
@@ -375,7 +365,7 @@ export default function MapPage() {
                         className="tactile-btn mt-2 rounded-full h-8 text-xs bg-river-500 hover:bg-river-600 text-white font-bold"
                         data-testid="enable-location-btn"
                     >
-                        {myLocation ? "Retry" : "Enable Location"}
+                        Try again
                     </Button>
                 </div>
             )}
