@@ -1,0 +1,17 @@
+{
+    "short_name": "RRDC GO",
+    "name": "Rolling River Pokemon AR Catcher",
+    "icons": [
+        {
+            "src": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any maskable"
+        }
+    ],
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "any",
+    "theme_color": "#0EA5E9",
+    "background_color": "#F8FAFC"
+}
