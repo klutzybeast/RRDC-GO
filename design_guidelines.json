@@ -1,0 +1,115 @@
+{
+  "project_name": "Rolling River Pokemon AR Catcher (RRDC GO)",
+  "theme": "Light",
+  "archetype": "6 (Vibrant Play)",
+  "design_philosophy": "Camp-y, adventurous, kid-friendly but not babyish. High-energy tactile UI with spatial/AR elements. The design blends 'Organic & Earthy' nature motifs with 'Vibrant Play' energy. Prioritizes thumb-free AR interactions, depth layering, and tactile, chunky UI elements suitable for iPad displays.",
+  "colors": {
+    "primary": "#0EA5E9",
+    "primary_hover": "#0284C7",
+    "secondary": "#22C55E",
+    "secondary_hover": "#16A34A",
+    "background_base": "#F8FAFC",
+    "surface_glass": "rgba(255, 255, 255, 0.6)",
+    "surface_glass_dark": "rgba(0, 0, 0, 0.4)",
+    "text_main": "#0F172A",
+    "text_muted": "#64748B",
+    "text_inverted": "#FFFFFF",
+    "rarity": {
+      "common": "#94A3B8",
+      "uncommon": "#22C55E",
+      "rare": "#3B82F6",
+      "legendary": "#FBBF24"
+    }
+  },
+  "typography": {
+    "heading_font": "Fredoka, sans-serif",
+    "body_font": "Nunito, sans-serif",
+    "h1": "text-5xl sm:text-6xl font-bold tracking-tight text-slate-900",
+    "h2": "text-3xl sm:text-4xl font-bold tracking-tight",
+    "h3": "text-2xl font-semibold",
+    "body": "text-base sm:text-lg text-slate-700 leading-relaxed",
+    "label": "text-sm font-bold uppercase tracking-widest text-slate-500",
+    "import_url": "https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Nunito:wght@400;600;700;800&display=swap"
+  },
+  "spacing_and_layout": {
+    "container_padding": "p-6 md:p-12",
+    "grid_gap": "gap-6 md:gap-8",
+    "border_radius": {
+      "button": "rounded-2xl",
+      "card": "rounded-3xl",
+      "pill": "rounded-full"
+    },
+    "shadows": {
+      "tactile": "shadow-[0_4px_0_rgba(0,0,0,0.1)] hover:shadow-[0_2px_0_rgba(0,0,0,0.1)] active:shadow-none",
+      "glass": "shadow-[0_8px_32px_rgba(0,0,0,0.12)]",
+      "glow_legendary": "drop-shadow-[0_0_15px_rgba(251,191,36,0.8)]"
+    }
+  },
+  "components": {
+    "buttons": "Chunky, tactile Neumorphism variant. Use rounded-2xl, vibrant colors, and a solid 4px bottom border/shadow to simulate physical depth. Active state translates down and removes the shadow.",
+    "cards": "Bento-style grids. rounded-3xl with generous p-6 padding. Soft subtle borders (border-slate-200) instead of heavy shadows for a clean look.",
+    "glass_panels": "For AR Overlays (Catch Screen) and floating navs: backdrop-blur-xl bg-white/60 (or black/40 for contrast) with 1px solid border-white/40 inner stroke. Ensures camera remains visible while text stays readable.",
+    "badges": "Rarity badges must be pills (rounded-full) with bold uppercase text. Legendary badge gets an animated subtle pulse or glow."
+  },
+  "motion_and_interactions": {
+    "pokemon_idle": "Continuous, smooth vertical bobbing via Math.sin() in Three.js useFrame. Optional slight rotation around Y axis.",
+    "ball_throw": "Swipe up gesture triggers a parabolic arc animation. The ball scales down as it moves 'away' into the Z-axis, simulating depth.",
+    "modals": "Framer Motion spring animation: initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', bounce: 0.5 }}.",
+    "hover_states": "Cards lift slightly (-translate-y-1) and gain shadow. Buttons visually depress."
+  },
+  "media": {
+    "login_bg": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/fcc906834deba231ec5757f1369ff983bf23ef7f59bd4db5a29f5216ec21d7f7.png",
+      "description": "Vibrant cartoon landscape of the camp. Used as a full-cover background for the Login Screen.",
+      "category": "background"
+    },
+    "river_ball": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
+      "description": "The Rolling River Pokeball. Used in the AR Catch screen at the bottom center.",
+      "category": "game_asset"
+    },
+    "pokemon_otter": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/01f9f068d69577176c046c3d894e4166739245e3a13d7e571b8bc172efde5238.png",
+      "description": "Camp Otter mascot. Use as one of the pre-seeded Pokemon or placeholder.",
+      "category": "pokemon_image"
+    },
+    "pokemon_pinecone": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/3c2090617beafada0cc7af1f34945dc0828070a40c0493beced82ae80b088273.png",
+      "description": "Pinecone creature. Use as one of the pre-seeded Pokemon or placeholder.",
+      "category": "pokemon_image"
+    }
+  },
+  "screens": {
+    "login": {
+      "layout": "Fullscreen background (login_bg). Center the login form in a glassmorphic card (Crystal Glass pattern).",
+      "elements": "Camp Logo/Title at the top (H1, Fredoka font). Chunky login button (primary blue)."
+    },
+    "ar_catch": {
+      "layout": "Absolute full-screen video element for live camera feed. Z-index 10 is the Three.js Canvas overlaying the video. Z-index 20 is the UI.",
+      "three_js": "Use textured PlaneGeometry for Pokemon images. Ensure planes always face the camera (billboarding). Implement a floating/bobbing animation.",
+      "ui_overlay": "Top-left: 'Flee/Back' glass pill. Top-right: User stats/Group glass pill. Bottom-center: The river_ball image, wrapped in a Framer Motion div or gesture handler for the swipe-to-throw mechanic.",
+      "catch_modal": "Appears on hit. Shows Pokemon image, name, randomly rolled power level (1-1000), and rarity badge. Must clearly state 'Caught by [Username]'. 'Go to My Collection' button."
+    },
+    "collection_bank": {
+      "layout": "Scrollable grid view. iPad optimized (grid-cols-3 or grid-cols-4).",
+      "elements": "Header with 'My Collection' (camp-themed). Filter/Sort dropdowns or pill toggles. Empty state: playful message indicating no catches yet.",
+      "card_design": "Image takes up 60% of card, soft background color based on rarity. Bottom 40% shows Name, Power, and Rarity badge."
+    },
+    "director_panel": {
+      "layout": "Admin dashboard. Sidebar on the left (Desktop/iPad Landscape) or top-nav (Portrait).",
+      "elements": "Stats overview cards (Total Catches, Active Users). Tables for User Management and Pokemon Seed Editor. Toggle for Global Spawns.",
+      "style": "More utilitarian than the game screens, but retains the camp colors and Fredoka headings."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Write all React code in .jsx or .js files as this environment does not use TypeScript.",
+    "In tailwind.config.js, extend the theme to include the custom fonts (Fredoka, Nunito) and custom colors defined in this JSON.",
+    "Add 'import_url' from typography section to your global index.css or inject it via a link tag in the HTML head.",
+    "For the AR feature, use standard HTML5 <video> element with navigator.mediaDevices.getUserMedia() positioned absolutely behind a Three.js Canvas.",
+    "For the Pokemon 3D rendering, use @react-three/fiber and @react-three/drei. Render the Pokemon as a textured plane using Drei's <Image> or <mesh> with a texture. Animate its position.y in a useFrame loop.",
+    "CRITICAL TESTABILITY: All interactive elements (buttons, inputs, filters, specific cards) and key informational elements (power levels, rarity text) MUST include a data-testid attribute formatted in kebab-case based on role (e.g., data-testid='login-submit-button', data-testid='pokemon-card-otter').",
+    "Use standard Shadcn components for the Admin Panel, but heavily customize their border-radius and spacing to match the 'tactile' camp aesthetic.",
+    "Ensure 'river_ball' logic uses simple drag/swipe logic (e.g. framer-motion drag or react-use-gesture) and calculates intersection with the 3D plane.",
+    "Use framer-motion for UI transitions, especially the Catch Success modal popping up over the camera."
+  ]
+}
