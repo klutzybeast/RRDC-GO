@@ -96,3 +96,30 @@ See `/app/memory/test_credentials.md` (admin/Camp1993).
 - Camper profile picture from CamperSnap (if CamperSnap exposes photos later)
 - Map pin "radius" — only allow catching if camper is within N meters (real Pokemon-Go feel)
 - Daily/weekly leaderboard (per group, per individual)
+
+
+---
+
+## Iteration 4 — Multi-spawn, kid-friendly catch, clean visuals (2026-02-21)
+
+### Changes
+- **Multi-spawn**: `/api/spawn/current` now returns `spawns: CurrentSpawn[]` (up to `max_active_spawns=5`) jittered around the camper when `lat`/`lng` query params are supplied. Legacy single-spawn clients still work (endpoint no longer writes `current_spawn` singleton).
+- **Rarity weights** default: common 55 / uncommon 28 / rare 12 / legendary 5 (~1-in-20 legendary).
+- **Kid-friendly catch rates**: Common 0.95, Uncommon 0.80, Rare 0.55, Legendary 0.25 (`CATCH_RATES` constant in `/app/backend/server.py`).
+- **No flee on miss**: `/api/spawn/catch` on failure keeps the spawn in `current_spawns` so the camper can keep throwing (still deducts 1 ball). Successful catches remove only the caught spawn, leaving the others active.
+- **`/api/spawn/flee`** accepts `{spawn_id}` to flee only one spawn; without body, flees all (used when the screen is closed).
+- **No catch timer**: spawn TTL bumped to 1h (migration auto-bumps legacy `<1800s` configs). All "Countdown" UI removed from ARPage and simplified in MapPage.
+- **Camera toggle on AR page** (`data-testid="toggle-camera-btn"`): stops the `MediaStream` track and falls back to a camp-themed radial gradient. Separate "Skip camera" button when permission is denied.
+- **Transparent visuals**:
+  - MapPage markers: removed the solid colored circle + white border. Only a soft `radial-gradient` glow sits behind the transparent Pokemon PNG.
+  - `PokemonOverlay` (AR): removed harsh drop-shadow that created "dot" artifacts on the camera feed. Added airy rarity glow behind the image.
+  - Pokeball: replaced the hardcoded white-background PNG (`RIVER_BALL` URL) with a pure SVG component (`/app/frontend/src/components/RiverBall.jsx`) — zero background, Rolling River blue/cream/emerald palette.
+- AR entry now uses `/ar?spawn=<spawn_id>` so a specific spawn can be targeted from the map.
+
+### Quality
+- Backend pytest: 15/15 pass (iteration_4 suite).
+- Frontend Playwright flows: all pass (multi-marker render, toggle camera, miss-stays, transparent visuals).
+
+### Known behavior notes
+- `maybe_create_spawn` caps new spawns at 3 per call even when `max_active_spawns=5`; subsequent polls fill the remaining slots.
+- ARPage has a 4-second safety that redirects to `/map` if no spawn is found on mount — does not affect active throws.
