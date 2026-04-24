@@ -124,6 +124,7 @@ export default function MapPage() {
         }).catch(() => {});
     }, []);
 
+    // Watch geolocation — trust the browser, not a pre-check
     const [locatedOnce, setLocatedOnce] = useState(false);
     const [inIframe] = useState(() => {
         try { return window.self !== window.top; } catch { return true; }
@@ -132,12 +133,28 @@ export default function MapPage() {
     const openInNewTab = () => {
         const url = window.location.href;
         try {
-            // Try to break out of the iframe first
             if (window.top) window.top.location.href = url;
         } catch {}
-        // Fallback: open in a new tab
         window.open(url, "_blank", "noopener,noreferrer");
     };
+
+    // Throttled position persister — only sends to backend if moved > 5m or 20s elapsed.
+    // Backend double-checks and discards redundant writes.
+    const lastPositionSentRef = useRef({ lat: null, lng: null, at: 0 });
+    const persistPosition = React.useCallback((lat, lng, accuracy) => {
+        const prev = lastPositionSentRef.current;
+        const now = Date.now();
+        const dt = now - prev.at;
+        let dist = Infinity;
+        if (prev.lat != null) {
+            const dlat = (lat - prev.lat) * 111111;
+            const dlng = (lng - prev.lng) * 111111 * Math.cos((lat * Math.PI) / 180);
+            dist = Math.sqrt(dlat * dlat + dlng * dlng);
+        }
+        if (dt < 15000 && dist < 5) return; // client-side throttle
+        lastPositionSentRef.current = { lat, lng, at: now };
+        userApi.post("/camper/position", { latitude: lat, longitude: lng, accuracy }).catch(() => {});
+    }, []);
 
     useEffect(() => {
         if (!navigator.geolocation) {
@@ -150,6 +167,7 @@ export default function MapPage() {
                 setMyLocation(loc);
                 setGeoError("");
                 setGeoBlocked(false);
+                persistPosition(loc.lat, loc.lng, pos.coords.accuracy);
                 if (!locatedOnce && mapRef.current) {
                     mapRef.current.panTo(loc);
                     mapRef.current.setZoom(19);

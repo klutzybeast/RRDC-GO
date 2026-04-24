@@ -402,6 +402,8 @@ async def ensure_indexes():
     await db.campers.create_index("id", unique=True)
     await db.campers.create_index("group_code")
     await db.map_pins.create_index("id", unique=True)
+    await db.camper_positions.create_index("camper_id", unique=True)
+    await db.camper_positions.create_index("updated_at")
 
 
 @app.on_event("startup")
@@ -1293,6 +1295,73 @@ async def get_camp_center(user=Depends(get_current_user)):
         "longitude": float(cfg.get("camp_longitude", -73.6665)),
         "default_zoom": int(cfg.get("camp_default_zoom", 18)),
     }
+
+
+# ----------------------
+# CAMPER POSITION CACHE (reduces chatter; enables future nearby features)
+# ----------------------
+class PositionReq(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+
+
+@api.post("/camper/position")
+async def save_camper_position(req: PositionReq, user=Depends(get_current_user)):
+    """Persist the camper's current position. Throttled server-side: only writes
+    if moved > 5 meters from last known or last write was > 20 s ago."""
+    now = now_utc()
+    prev = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
+    should_write = True
+    if prev:
+        last_at = datetime.fromisoformat(prev.get("updated_at", now.isoformat()))
+        dt = (now - last_at).total_seconds()
+        # Distance in meters (equirectangular, fine for short distances)
+        dlat = (req.latitude - prev["latitude"]) * 111_111.0
+        dlng = (req.longitude - prev["longitude"]) * 111_111.0 * math.cos(math.radians(req.latitude))
+        dist_m = (dlat * dlat + dlng * dlng) ** 0.5
+        if dt < 20 and dist_m < 5.0:
+            should_write = False
+    if should_write:
+        await db.camper_positions.update_one(
+            {"camper_id": user["id"]},
+            {"$set": {
+                "camper_id": user["id"],
+                "group_code": user.get("group_name", ""),
+                "first_name": user.get("first_name", ""),
+                "last_name": user.get("last_name", ""),
+                "latitude": float(req.latitude),
+                "longitude": float(req.longitude),
+                "accuracy": float(req.accuracy) if req.accuracy is not None else None,
+                "updated_at": now.isoformat(),
+            }},
+            upsert=True,
+        )
+    return {"saved": should_write}
+
+
+@api.get("/admin/camper-positions")
+async def admin_camper_positions(admin=Depends(get_current_admin), max_age_min: int = 30):
+    cutoff = now_utc() - timedelta(minutes=max_age_min)
+    out = []
+    async for p in db.camper_positions.find({}, {"_id": 0}):
+        try:
+            ts = datetime.fromisoformat(p.get("updated_at"))
+            if ts < cutoff:
+                continue
+        except Exception:
+            continue
+        out.append({
+            "camper_id": p["camper_id"],
+            "first_name": p.get("first_name", ""),
+            "last_name": p.get("last_name", ""),
+            "group_code": p.get("group_code", ""),
+            "latitude": float(p["latitude"]),
+            "longitude": float(p["longitude"]),
+            "accuracy": p.get("accuracy"),
+            "updated_at": p["updated_at"],
+        })
+    return {"count": len(out), "positions": out}
 
 
 # ----------------------
