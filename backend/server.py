@@ -177,6 +177,8 @@ class RosterStatus(BaseModel):
     camper_count: int = 0
     group_count: int = 0
     last_error: Optional[str] = None
+    next_sync_at: Optional[datetime] = None
+    sync_timezone: str = "America/New_York"
 
 
 class MapSpawnOut(BaseModel):
@@ -445,7 +447,12 @@ async def startup():
     global scheduler
     try:
         scheduler = AsyncIOScheduler(timezone=pytz.timezone(SYNC_TIMEZONE))
-        scheduler.add_job(sync_roster, CronTrigger(hour=0, minute=0), id="nightly-roster-sync", replace_existing=True)
+        scheduler.add_job(
+            sync_roster,
+            CronTrigger(hour=0, minute=0, timezone=pytz.timezone(SYNC_TIMEZONE)),
+            id="nightly-roster-sync",
+            replace_existing=True,
+        )
         scheduler.start()
         logger.info(f"Scheduler started; nightly sync at 00:00 {SYNC_TIMEZONE}")
     except Exception as e:
@@ -1457,11 +1464,21 @@ async def camper_login(req: CamperLoginReq):
 @api.get("/admin/roster-status", response_model=RosterStatus)
 async def admin_roster_status(admin=Depends(get_current_admin)):
     meta = await db.sync_meta.find_one({"id": "roster"}, {"_id": 0}) or {}
+    next_at = None
+    try:
+        if scheduler and scheduler.running:
+            job = scheduler.get_job("nightly-roster-sync")
+            if job and job.next_run_time:
+                next_at = job.next_run_time
+    except Exception as e:
+        logger.error(f"get next_run_time failed: {e}")
     return RosterStatus(
         last_synced_at=datetime.fromisoformat(meta["last_synced_at"]) if meta.get("last_synced_at") else None,
         camper_count=int(meta.get("camper_count", 0) or await db.campers.count_documents({})),
         group_count=int(meta.get("group_count", 0)),
         last_error=meta.get("last_error"),
+        next_sync_at=next_at,
+        sync_timezone=SYNC_TIMEZONE,
     )
 
 

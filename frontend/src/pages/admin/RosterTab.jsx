@@ -71,6 +71,21 @@ export default function RosterTab() {
                     <div className="font-heading text-lg font-bold text-slate-900">
                         {status?.last_synced_at ? new Date(status.last_synced_at).toLocaleString() : "Never"}
                     </div>
+                    {status?.next_sync_at && (
+                        <div className="text-[11px] text-slate-500 mt-2">
+                            Next auto-sync:{" "}
+                            <span className="font-bold text-emerald-600" data-testid="roster-next-sync">
+                                {new Date(status.next_sync_at).toLocaleString(undefined, {
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    timeZoneName: "short",
+                                })}
+                            </span>
+                        </div>
+                    )}
                     {status?.last_error && (
                         <div className="mt-2 text-xs text-red-600 flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" /> {status.last_error}
