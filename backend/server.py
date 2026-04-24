@@ -116,11 +116,12 @@ class PokemonUpdate(BaseModel):
 
 class SpawnConfig(BaseModel):
     enabled: bool = True
-    min_interval_min: float = 3.0
-    max_interval_min: float = 8.0
+    min_interval_min: float = 0.5
+    max_interval_min: float = 1.5
     active_hours_start: int = 9  # 24h
     active_hours_end: int = 15
-    spawn_ttl_seconds: int = 120
+    spawn_ttl_seconds: int = 600
+    max_active_spawns: int = 5
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
@@ -190,9 +191,10 @@ class CurrentSpawn(BaseModel):
 
 
 class SpawnPollResponse(BaseModel):
-    spawn: Optional[CurrentSpawn] = None
+    spawns: List[CurrentSpawn] = Field(default_factory=list)
     next_spawn_at: Optional[datetime] = None
     enabled: bool = True
+    max_active_spawns: int = 5
 
 
 class CatchAttemptReq(BaseModel):
@@ -546,78 +548,92 @@ def jitter_location(lat: float, lng: float, min_m: float = 8.0, max_m: float = 3
 
 
 async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[float] = None, camper_lng: Optional[float] = None) -> dict:
-    """Return the refreshed group state, creating a spawn if due."""
+    """Return the refreshed group state, creating new spawns up to max_active_spawns."""
     state = await get_or_create_group_state(group_id)
 
-    # Clean expired current spawn
-    cur = state.get("current_spawn")
-    if cur:
-        exp = datetime.fromisoformat(cur["expires_at"])
-        if exp <= now_utc():
-            # Expired uncaught -> set next spawn
-            gap_min = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
-            next_at = now_utc() + timedelta(minutes=gap_min)
-            state["current_spawn"] = None
-            state["next_spawn_at"] = next_at.isoformat()
-            await db.group_spawns.update_one(
-                {"group_id": group_id},
-                {"$set": {"current_spawn": None, "next_spawn_at": next_at.isoformat()}},
-            )
+    # Normalize to new schema: current_spawns is a list
+    current = state.get("current_spawns")
+    if current is None:
+        legacy = state.get("current_spawn")
+        current = [legacy] if legacy else []
+
+    # Filter expired
+    fresh = []
+    for s in current:
+        try:
+            if s and datetime.fromisoformat(s["expires_at"]) > now_utc():
+                fresh.append(s)
+        except Exception:
+            pass
+    current = fresh
 
     if not cfg.get("enabled", True) or not is_within_active_hours(cfg):
-        return state
-
-    if state.get("current_spawn"):
-        return state
-
-    next_at = datetime.fromisoformat(state["next_spawn_at"])
-    if now_utc() < next_at:
-        return state
-
-    pokemon = await pick_spawn_pokemon(cfg)
-    if not pokemon:
+        state["current_spawns"] = current
         await db.group_spawns.update_one(
             {"group_id": group_id},
-            {"$set": {"next_spawn_at": (now_utc() + timedelta(minutes=1)).isoformat()}},
+            {"$set": {"current_spawns": current, "current_spawn": None}},
         )
-        state["next_spawn_at"] = (now_utc() + timedelta(minutes=1)).isoformat()
         return state
 
-    # Pick spawn location: prefer camper's current GPS (jittered) → pin → camp center
-    lat, lng, pin_name, pin_id = None, None, None, None
-    if camper_lat is not None and camper_lng is not None:
-        lat, lng = jitter_location(float(camper_lat), float(camper_lng))
-        pin_name = "Nearby"
-    else:
-        pin = await pick_map_pin()
-        if pin:
-            lat = pin.get("latitude")
-            lng = pin.get("longitude")
-            pin_name = pin.get("name")
-            pin_id = pin.get("id")
-        else:
-            lat = float(cfg.get("camp_latitude", 40.6396))
-            lng = float(cfg.get("camp_longitude", -73.6665))
-            lat, lng = jitter_location(lat, lng, 10, 40)
-            pin_name = "Camp"
+    max_active = int(cfg.get("max_active_spawns", 5))
+    next_at = None
+    try:
+        next_at = datetime.fromisoformat(state.get("next_spawn_at") or now_utc().isoformat())
+    except Exception:
+        next_at = now_utc()
 
-    ttl = int(cfg.get("spawn_ttl_seconds", 120))
-    spawn = {
-        "spawn_id": str(uuid.uuid4()),
-        "pokemon_id": pokemon["id"],
-        "pokemon": pokemon,
-        "started_at": now_utc().isoformat(),
-        "expires_at": (now_utc() + timedelta(seconds=ttl)).isoformat(),
-        "latitude": lat,
-        "longitude": lng,
-        "pin_name": pin_name,
-        "pin_id": pin_id,
-    }
+    # Create new spawns while we're under the cap and time allows.
+    # If under cap and below the cap, generate up to 2 immediately then stagger by interval.
+    created = 0
+    while len(current) < max_active and now_utc() >= next_at and created < 3:
+        pokemon = await pick_spawn_pokemon(cfg)
+        if not pokemon:
+            break
+
+        lat, lng, pin_name, pin_id = None, None, None, None
+        if camper_lat is not None and camper_lng is not None:
+            # Larger spawn radius for multi-spawn so they don't all stack on top of each other
+            lat, lng = jitter_location(float(camper_lat), float(camper_lng), 12, 60)
+            pin_name = "Nearby"
+        else:
+            pin = await pick_map_pin()
+            if pin:
+                lat, lng = jitter_location(pin.get("latitude"), pin.get("longitude"), 5, 25)
+                pin_name = pin.get("name")
+                pin_id = pin.get("id")
+            else:
+                clat = float(cfg.get("camp_latitude", 40.6396))
+                clng = float(cfg.get("camp_longitude", -73.6665))
+                lat, lng = jitter_location(clat, clng, 15, 80)
+                pin_name = "Camp"
+
+        ttl = int(cfg.get("spawn_ttl_seconds", 600))
+        spawn = {
+            "spawn_id": str(uuid.uuid4()),
+            "pokemon_id": pokemon["id"],
+            "pokemon": pokemon,
+            "started_at": now_utc().isoformat(),
+            "expires_at": (now_utc() + timedelta(seconds=ttl)).isoformat(),
+            "latitude": lat,
+            "longitude": lng,
+            "pin_name": pin_name,
+            "pin_id": pin_id,
+        }
+        current.append(spawn)
+        gap = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
+        next_at = now_utc() + timedelta(minutes=gap)
+        created += 1
+
     await db.group_spawns.update_one(
         {"group_id": group_id},
-        {"$set": {"current_spawn": spawn}},
+        {"$set": {
+            "current_spawns": current,
+            "current_spawn": None,
+            "next_spawn_at": next_at.isoformat() if next_at else now_utc().isoformat(),
+        }},
     )
-    state["current_spawn"] = spawn
+    state["current_spawns"] = current
+    state["next_spawn_at"] = next_at.isoformat() if next_at else now_utc().isoformat()
     return state
 
 
