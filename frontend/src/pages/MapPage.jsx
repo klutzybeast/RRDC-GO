@@ -27,7 +27,7 @@ const mapStyles = [
     { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
 
-const CATCH_RADIUS_METERS = 20;
+const CATCH_RADIUS_METERS = 40;
 
 function metersBetween(a, b) {
     if (!a || !b) return Infinity;
