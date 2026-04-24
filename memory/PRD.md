@@ -152,3 +152,33 @@ See `/app/memory/test_credentials.md` (admin/Camp1993).
 - Backend pytest: 8/8 pass (iteration_5 suite) — auth required, week_start = Monday 00:00 UTC, catch/pokemon/walker shapes, is_me flag, step_meters cap.
 - Frontend Playwright: 7/7 flows pass (route protected, 3 tabs render, testids present, nav buttons).
 - Known note: Sonner spawn-toasts can momentarily overlap the MapPage trophy button on narrow screens — not a functional issue on real devices since toasts dismiss in ~3.5s.
+
+
+---
+
+## Iteration 6 — Checker-pattern background remover (2026-02-21)
+
+### Problem
+Gemini Nano Banana generated Pokemon PNGs with a literal gray/white **checkerboard pattern** drawn into the pixel data (the "transparency indicator" rendered as actual RGB content). The old edge-flood-fill remover could only strip solid borders, so the checker trapped around each creature's glow stayed visible on map markers and the AR view.
+
+### Fix
+Rewrote `_remove_white_background()` in `/app/backend/server.py` using numpy:
+1. Samples a wide border strip and clusters into top-N dominant colors at 16-step quantization.
+2. If 2+ near-gray tones dominate the border → checker signature → treat BOTH as background and remove matching pixels globally across the image (not just flood-reachable from edges).
+3. Saturation guard (chroma >= 40) protects colorful foreground pixels so the Pokemon body is never eaten.
+4. Soft 28–56 color-distance feather for a clean alpha edge.
+5. Honors any pre-existing alpha via min().
+
+**Verified transparency jump** on real assets:
+- Starfire Owl (legendary): 11.91% → 77.6% transparent.
+- Across all 23 active Pokemon: 46.6%–85.8% transparent; 12.2%–40.2% colorful body preserved. 0 failures.
+
+### New admin endpoints
+- POST `/api/admin/pokemon/fix-backgrounds` now returns 202 `{status: started}` immediately and runs reprocessing in a background asyncio task (no more 60s ingress 502s).
+- GET `/api/admin/pokemon/fix-backgrounds/status` polls `{status, updated, failed, total, started_at, finished_at}`.
+
+Also updated the Nano Banana system prompt to request solid-white (never checker) backgrounds for future generations.
+
+### Quality
+- Iteration_6 testing agent: all 23 pokemon pass transparency + body-preservation thresholds. No regressions on leaderboard, spawn, catch, auth endpoints.
+- Synthetic unit test `/tmp/test_bg_remover.py` passes (79.99% stripped on a checker+red-circle, 100% red preserved).

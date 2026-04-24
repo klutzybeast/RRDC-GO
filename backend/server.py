@@ -2008,25 +2008,50 @@ async def admin_ledger(admin=Depends(get_current_admin), limit: int = 100):
     return out
 
 
+_fix_bg_job_state = {"status": "idle", "updated": 0, "failed": 0, "total": 0, "started_at": None, "finished_at": None}
+
+
+async def _run_fix_backgrounds_job():
+    """Background worker that reprocesses all pokemon images."""
+    global _fix_bg_job_state
+    _fix_bg_job_state.update({"status": "running", "updated": 0, "failed": 0, "total": 0, "started_at": now_utc().isoformat(), "finished_at": None})
+    try:
+        total = await db.pokemon.count_documents({"image_data_url": {"$regex": "^data:image"}})
+        _fix_bg_job_state["total"] = total
+        async for p in db.pokemon.find({"image_data_url": {"$regex": "^data:image"}}, {"_id": 0}):
+            try:
+                url = p.get("image_data_url", "")
+                if ";base64," not in url:
+                    continue
+                raw = base64.b64decode(url.split(";base64,", 1)[1])
+                out = _remove_white_background(raw)
+                new_url = f"data:image/png;base64,{base64.b64encode(out).decode()}"
+                await db.pokemon.update_one({"id": p["id"]}, {"$set": {"image_data_url": new_url}})
+                _fix_bg_job_state["updated"] += 1
+            except Exception as e:
+                logger.error(f"bg fix failed for {p.get('name')}: {e}")
+                _fix_bg_job_state["failed"] += 1
+    finally:
+        _fix_bg_job_state["status"] = "done"
+        _fix_bg_job_state["finished_at"] = now_utc().isoformat()
+
+
 @api.post("/admin/pokemon/fix-backgrounds")
 async def admin_fix_pokemon_backgrounds(admin=Depends(get_current_admin)):
-    """Re-process all existing pokemon images to flood-fill-strip the white background."""
-    updated = 0
-    failed = 0
-    async for p in db.pokemon.find({"image_data_url": {"$regex": "^data:image"}}, {"_id": 0}):
-        try:
-            url = p.get("image_data_url", "")
-            if ";base64," not in url:
-                continue
-            raw = base64.b64decode(url.split(";base64,", 1)[1])
-            out = _remove_white_background(raw)
-            new_url = f"data:image/png;base64,{base64.b64encode(out).decode()}"
-            await db.pokemon.update_one({"id": p["id"]}, {"$set": {"image_data_url": new_url}})
-            updated += 1
-        except Exception as e:
-            logger.error(f"bg fix failed for {p.get('name')}: {e}")
-            failed += 1
-    return {"updated": updated, "failed": failed}
+    """Kick off a background re-process of all pokemon images.
+
+    Returns immediately with 202. Poll GET /api/admin/pokemon/fix-backgrounds/status
+    to check progress. Running it again while in-progress is a no-op.
+    """
+    if _fix_bg_job_state.get("status") == "running":
+        return {"status": "already_running", **_fix_bg_job_state}
+    asyncio.create_task(_run_fix_backgrounds_job())
+    return {"status": "started"}
+
+
+@api.get("/admin/pokemon/fix-backgrounds/status")
+async def admin_fix_backgrounds_status(admin=Depends(get_current_admin)):
+    return _fix_bg_job_state
 
 
 # Mount router
