@@ -8,7 +8,7 @@ import { Switch } from "../../components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import RarityBadge from "../../components/RarityBadge";
-import { Pencil, Upload, Check, XCircle } from "lucide-react";
+import { Pencil, Upload, Check, XCircle, Star } from "lucide-react";
 import { toast } from "sonner";
 
 const RARITIES = ["common", "uncommon", "rare", "legendary"];
@@ -18,7 +18,7 @@ export default function PokemonTab() {
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
-    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", description: "", active: false });
+    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", description: "", active: false, featured: false });
     const [uploading, setUploading] = useState(false);
     const [seeding, setSeeding] = useState(false);
     const fileRef = useRef(null);
@@ -37,6 +37,7 @@ export default function PokemonTab() {
             rarity: p.rarity,
             description: p.description,
             active: p.active,
+            featured: !!p.featured,
         });
         setOpen(true);
     };
@@ -56,6 +57,13 @@ export default function PokemonTab() {
     const toggleActive = async (p) => {
         try {
             await adminApi.patch(`/admin/pokemon/${p.id}`, { active: !p.active });
+            load();
+        } catch (e) { toast.error(formatApiError(e)); }
+    };
+
+    const toggleFeatured = async (p) => {
+        try {
+            await adminApi.patch(`/admin/pokemon/${p.id}`, { featured: !p.featured });
             load();
         } catch (e) { toast.error(formatApiError(e)); }
     };
@@ -131,6 +139,14 @@ export default function PokemonTab() {
                                 >
                                     {p.active ? <Check className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
                                 </button>
+                                <button
+                                    onClick={() => toggleFeatured(p)}
+                                    className={`absolute top-10 right-2 w-7 h-7 rounded-full flex items-center justify-center shadow-sm ${p.featured ? "bg-amber-400 text-slate-900" : "bg-white/80 text-slate-400"}`}
+                                    title={p.featured ? "Featured — spawns more often" : "Mark as supervisor pokemon"}
+                                    data-testid={`toggle-featured-${p.id}`}
+                                >
+                                    <Star className={`w-4 h-4 ${p.featured ? "fill-slate-900" : ""}`} />
+                                </button>
                             </div>
                             <div className="p-3">
                                 <div className="font-heading font-bold text-slate-900 text-sm truncate">{p.name}</div>
@@ -202,6 +218,13 @@ export default function PokemonTab() {
                                 <p className="text-xs text-slate-500">Only active pokemon can spawn</p>
                             </div>
                             <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} data-testid="pokemon-form-active" />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl bg-amber-50 border border-amber-200 p-3">
+                            <div>
+                                <Label className="text-slate-900 flex items-center gap-1"><Star className="w-4 h-4 text-amber-500 fill-amber-400" /> Featured (supervisor)</Label>
+                                <p className="text-xs text-slate-500">Spawns 4× more often than other pokemon — use for your hand-picked camp Pokemon.</p>
+                            </div>
+                            <Switch checked={form.featured} onCheckedChange={(v) => setForm({ ...form, featured: v })} data-testid="pokemon-form-featured" />
                         </div>
                     </div>
                     <DialogFooter>

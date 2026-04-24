@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 0.98, "uncommon": 0.90, "rare": 0.75, "legendary": 0.55}
+CATCH_RATES = {"common": 1.0, "uncommon": 0.98, "rare": 0.92, "legendary": 0.80}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
@@ -106,6 +106,7 @@ class PokemonOut(BaseModel):
     description: str = ""
     image_data_url: str = ""
     active: bool = False
+    featured: bool = False
 
 
 class PokemonUpdate(BaseModel):
@@ -115,6 +116,7 @@ class PokemonUpdate(BaseModel):
     description: Optional[str] = None
     active: Optional[bool] = None
     image_data_url: Optional[str] = None
+    featured: Optional[bool] = None
 
 
 class SpawnConfig(BaseModel):
@@ -128,6 +130,7 @@ class SpawnConfig(BaseModel):
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     catch_rates: dict = Field(default_factory=lambda: CATCH_RATES.copy())
     catch_radius_meters: int = 40  # How close a camper must be to a spawn to catch it
+    featured_weight_multiplier: float = 4.0  # admin-marked "supervisor" pokemon spawn 4x more often
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
     camp_default_zoom: int = 18
@@ -514,24 +517,26 @@ async def load_spawn_config() -> dict:
 
 async def pick_spawn_pokemon(cfg: dict) -> Optional[dict]:
     weights = cfg.get("rarity_weights") or DEFAULT_RARITY_WEIGHTS
+    featured_boost = float(cfg.get("featured_weight_multiplier", 4.0))
     # Try up to 4 times to get a rarity with actual active pokemon
     for _ in range(4):
         rarity = pick_rarity(weights)
-        pipeline = [
-            {"$match": {"active": True, "rarity": rarity}},
-            {"$sample": {"size": 1}},
-            {"$project": {"_id": 0}},
-        ]
-        docs = await db.pokemon.aggregate(pipeline).to_list(1)
-        if docs:
-            return docs[0]
-    # Fallback: any active pokemon
-    docs = await db.pokemon.aggregate([
-        {"$match": {"active": True}},
-        {"$sample": {"size": 1}},
-        {"$project": {"_id": 0}},
-    ]).to_list(1)
-    return docs[0] if docs else None
+        docs = await db.pokemon.find(
+            {"active": True, "rarity": rarity},
+            {"_id": 0},
+        ).to_list(500)
+        if not docs:
+            continue
+        # Weight featured pokemon higher so admin-uploaded "supervisor" pokemon
+        # appear more often around camp.
+        weights_list = [featured_boost if d.get("featured") else 1.0 for d in docs]
+        return random.choices(docs, weights=weights_list, k=1)[0]
+    # Fallback: any active pokemon (still weighted)
+    docs = await db.pokemon.find({"active": True}, {"_id": 0}).to_list(1000)
+    if not docs:
+        return None
+    weights_list = [featured_boost if d.get("featured") else 1.0 for d in docs]
+    return random.choices(docs, weights=weights_list, k=1)[0]
 
 
 async def get_or_create_group_state(group_id: str) -> dict:
@@ -789,6 +794,7 @@ def pokemon_to_out(doc: dict) -> PokemonOut:
         description=doc.get("description", ""),
         image_data_url=doc.get("image_data_url", ""),
         active=bool(doc.get("active", False)),
+        featured=bool(doc.get("featured", False)),
     )
 
 
