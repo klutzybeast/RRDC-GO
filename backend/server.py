@@ -17,6 +17,8 @@ import bcrypt
 import jwt
 import httpx
 import pytz
+from io import BytesIO
+from PIL import Image
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
@@ -790,8 +792,15 @@ async def admin_upload_pokemon_image(
     data = await file.read()
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 5MB)")
+    # Auto-remove white background so Pokemon float nicely on the map / AR
+    try:
+        data = _remove_white_background(data)
+        mime = "image/png"
+    except Exception as e:
+        logger.warning(f"Background removal failed, keeping original: {e}")
+        mime = file.content_type
     b64 = base64.b64encode(data).decode()
-    data_url = f"data:{file.content_type};base64,{b64}"
+    data_url = f"data:{mime};base64,{b64}"
     res = await db.pokemon.update_one({"id": pokemon_id}, {"$set": {"image_data_url": data_url}})
     if res.matched_count == 0:
         raise HTTPException(404, "Pokemon not found")
@@ -1398,7 +1407,8 @@ TEST_POKEMON_SEED = [
 
 
 async def _generate_pokemon_image(prompt: str) -> Optional[str]:
-    """Generate a PNG image via Gemini Nano Banana, return data: URL or None on failure."""
+    """Generate a PNG image via Gemini Nano Banana, strip white background,
+    and return a transparent data: URL (or None on failure)."""
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
     except Exception as e:
@@ -1408,7 +1418,7 @@ async def _generate_pokemon_image(prompt: str) -> Optional[str]:
     if not api_key:
         logger.error("EMERGENT_LLM_KEY missing")
         return None
-    chat = (LlmChat(api_key=api_key, session_id=f"pokemon-{uuid.uuid4()}", system_message="You generate cute cartoon Pokemon-style creature images.")
+    chat = (LlmChat(api_key=api_key, session_id=f"pokemon-{uuid.uuid4()}", system_message="You generate cute cartoon Pokemon-style creature images with clean white backgrounds that can be keyed out.")
             .with_model("gemini", "gemini-3.1-flash-image-preview")
             .with_params(modalities=["image", "text"]))
     try:
@@ -1420,10 +1430,55 @@ async def _generate_pokemon_image(prompt: str) -> Optional[str]:
         return None
     img = images[0]
     b64 = img.get("data") or ""
-    mime = img.get("mime_type") or "image/png"
     if not b64:
         return None
-    return f"data:{mime};base64,{b64}"
+    try:
+        raw = base64.b64decode(b64)
+        transparent = _remove_white_background(raw)
+        return f"data:image/png;base64,{base64.b64encode(transparent).decode()}"
+    except Exception as e:
+        logger.error(f"Background removal failed, returning raw image: {e}")
+        mime = img.get("mime_type") or "image/png"
+        return f"data:{mime};base64,{b64}"
+
+
+def _remove_white_background(png_bytes: bytes, threshold: int = 235) -> bytes:
+    """Flood-fill from the 4 corners to make the outer white area transparent.
+    Leaves interior whites (highlights, eyes) intact."""
+    img = Image.open(BytesIO(png_bytes)).convert("RGBA")
+    w, h = img.size
+    px = img.load()
+    # BFS flood fill from each corner, marking reachable near-white pixels
+    from collections import deque
+    visited = [[False] * h for _ in range(w)]
+    q = deque()
+    for cx, cy in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+        r, g, b, a = px[cx, cy]
+        if r >= threshold and g >= threshold and b >= threshold:
+            q.append((cx, cy))
+            visited[cx][cy] = True
+    while q:
+        x, y = q.popleft()
+        r, g, b, _a = px[x, y]
+        # Soft alpha based on how close to pure white (anti-aliased edge)
+        mn = min(r, g, b)
+        if mn >= 250:
+            alpha = 0
+        elif mn >= threshold:
+            # fade out linearly from 235→250
+            alpha = int(255 * (250 - mn) / 15)
+        else:
+            continue
+        px[x, y] = (r, g, b, alpha)
+        for nx, ny in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]:
+            if 0 <= nx < w and 0 <= ny < h and not visited[nx][ny]:
+                nr, ng, nb, _na = px[nx, ny]
+                if min(nr, ng, nb) >= threshold:
+                    visited[nx][ny] = True
+                    q.append((nx, ny))
+    out = BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
 
 
 @api.post("/admin/seed-test-pokemon")
@@ -1651,6 +1706,27 @@ async def admin_ledger(admin=Depends(get_current_admin), limit: int = 100):
     async for e in db.ball_ledger.find({}, {"_id": 0}).sort("created_at", -1).limit(limit):
         out.append(e)
     return out
+
+
+@api.post("/admin/pokemon/fix-backgrounds")
+async def admin_fix_pokemon_backgrounds(admin=Depends(get_current_admin)):
+    """Re-process all existing pokemon images to flood-fill-strip the white background."""
+    updated = 0
+    failed = 0
+    async for p in db.pokemon.find({"image_data_url": {"$regex": "^data:image"}}, {"_id": 0}):
+        try:
+            url = p.get("image_data_url", "")
+            if ";base64," not in url:
+                continue
+            raw = base64.b64decode(url.split(";base64,", 1)[1])
+            out = _remove_white_background(raw)
+            new_url = f"data:image/png;base64,{base64.b64encode(out).decode()}"
+            await db.pokemon.update_one({"id": p["id"]}, {"$set": {"image_data_url": new_url}})
+            updated += 1
+        except Exception as e:
+            logger.error(f"bg fix failed for {p.get('name')}: {e}")
+            failed += 1
+    return {"updated": updated, "failed": failed}
 
 
 # Mount router

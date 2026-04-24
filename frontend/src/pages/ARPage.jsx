@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue } from "framer-motion";
 import { userApi, formatApiError } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
-import PokemonModel from "../components/PokemonModel";
 import CatchSuccessModal from "../components/CatchSuccessModal";
+import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
 import { toast } from "sonner";
 import { Camera, LogOut, BackpackIcon, X } from "lucide-react";
@@ -215,7 +215,7 @@ export default function ARPage() {
                 </div>
             )}
 
-            {spawn && <PokemonModel imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
+            {spawn && <PokemonOverlay imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
 
             {/* UI overlay */}
             <div className="ar-ui">

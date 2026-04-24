@@ -28,6 +28,15 @@ const mapStyles = [
     { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
 
+const CATCH_RADIUS_METERS = 20;
+
+function metersBetween(a, b) {
+    if (!a || !b) return Infinity;
+    const dlat = (b.lat - a.lat) * 111111;
+    const dlng = (b.lng - a.lng) * 111111 * Math.cos((a.lat * Math.PI) / 180);
+    return Math.sqrt(dlat * dlat + dlng * dlng);
+}
+
 function Countdown({ until }) {
     const [, setTick] = useState(0);
     useEffect(() => {
@@ -217,10 +226,13 @@ export default function MapPage() {
                 setGeoError("");
                 setGeoBlocked(false);
                 persistPosition(loc.lat, loc.lng, pos.coords.accuracy);
-                if (!locatedOnce && mapRef.current) {
+                // Always re-center the map on the camper — map only moves when they walk
+                if (mapRef.current) {
                     mapRef.current.panTo(loc);
-                    mapRef.current.setZoom(19);
-                    setLocatedOnce(true);
+                    if (!locatedOnce) {
+                        mapRef.current.setZoom(19);
+                        setLocatedOnce(true);
+                    }
                 }
             },
             (err) => {
@@ -288,8 +300,22 @@ export default function MapPage() {
 
     const openCatch = () => {
         if (!spawn) return;
+        if (!myLocation) {
+            toast.error("Need your location to catch Pokemon. Tap the location button to enable.");
+            return;
+        }
+        const dist = metersBetween(myLocation, { lat: spawn.latitude, lng: spawn.longitude });
+        if (isFinite(dist) && dist > CATCH_RADIUS_METERS) {
+            toast.error(`Walk closer — you're ${Math.round(dist)} m away (need to be within ${CATCH_RADIUS_METERS} m)`);
+            return;
+        }
         nav("/ar");
     };
+
+    const spawnDistance = spawn && spawn.latitude != null && myLocation
+        ? metersBetween(myLocation, { lat: spawn.latitude, lng: spawn.longitude })
+        : null;
+    const inRange = spawnDistance != null && spawnDistance <= CATCH_RADIUS_METERS;
 
     const campCenter = myLocation || center;
 
@@ -312,9 +338,13 @@ export default function MapPage() {
                     options={{
                         styles: mapStyles,
                         disableDefaultUI: true,
-                        zoomControl: true,
+                        zoomControl: false,
+                        scrollwheel: false,
                         clickableIcons: false,
-                        gestureHandling: "greedy",
+                        draggable: false,
+                        gestureHandling: "none",
+                        keyboardShortcuts: false,
+                        disableDoubleClickZoom: true,
                         mapTypeId: "roadmap",
                     }}
                     onLoad={(m) => (mapRef.current = m)}
@@ -351,7 +381,7 @@ export default function MapPage() {
                         >
                             <div
                                 onClick={openCatch}
-                                className="relative cursor-pointer"
+                                className="relative cursor-pointer select-none"
                                 style={{ transform: "translate(-50%, -100%)" }}
                                 data-testid="spawn-marker"
                             >
@@ -361,17 +391,22 @@ export default function MapPage() {
                                     className="relative"
                                 >
                                     <div
-                                        className="w-20 h-20 rounded-full flex items-center justify-center shadow-2xl border-4 border-white"
+                                        className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl border-4 border-white transition-all ${!inRange ? "grayscale opacity-60" : ""}`}
                                         style={{ background: rarityColor[spawn.pokemon.rarity] || "#94A3B8" }}
                                     >
                                         {spawn.pokemon.image_data_url ? (
-                                            <img src={spawn.pokemon.image_data_url} alt="" className="w-[80%] h-[80%] object-contain" />
+                                            <img src={spawn.pokemon.image_data_url} alt="" className="w-[90%] h-[90%] object-contain" draggable={false} />
                                         ) : (
                                             <Sparkles className="w-8 h-8 text-white" />
                                         )}
                                     </div>
                                     <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent" style={{ borderTopColor: "white" }} />
                                 </motion.div>
+                                {!inRange && spawnDistance != null && (
+                                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap">
+                                        {Math.round(spawnDistance)} m away
+                                    </div>
+                                )}
                             </div>
                         </OverlayView>
                     )}
@@ -452,18 +487,19 @@ export default function MapPage() {
                     <motion.button
                         onClick={openCatch}
                         whileTap={{ scale: 0.92 }}
-                        className="relative"
+                        disabled={!inRange}
+                        className={`relative ${!inRange ? "opacity-60" : ""}`}
                         data-testid="open-catch-btn"
                     >
                         <motion.img
                             src={RIVER_BALL}
                             alt="Catch"
                             className="w-24 h-24 drop-shadow-[0_8px_18px_rgba(0,0,0,0.6)]"
-                            animate={{ y: [0, -6, 0] }}
+                            animate={inRange ? { y: [0, -6, 0] } : {}}
                             transition={{ repeat: Infinity, duration: 1.6 }}
                         />
-                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-300 text-slate-900 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap">
-                            Tap to catch
+                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap ${inRange ? "bg-amber-300 text-slate-900" : "bg-slate-700 text-white"}`}>
+                            {inRange ? "Tap to catch" : spawnDistance != null ? `${Math.round(spawnDistance)} m away` : "Walk closer"}
                         </div>
                     </motion.button>
                 )}
