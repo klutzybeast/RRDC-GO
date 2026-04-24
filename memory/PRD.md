@@ -123,3 +123,32 @@ See `/app/memory/test_credentials.md` (admin/Camp1993).
 ### Known behavior notes
 - `maybe_create_spawn` caps new spawns at 3 per call even when `max_active_spawns=5`; subsequent polls fill the remaining slots.
 - ARPage has a 4-second safety that redirects to `/map` if no spawn is found on mount — does not affect active throws.
+
+
+---
+
+## Iteration 5 — Camper Weekly Leaderboard (2026-02-21)
+
+### Changes
+- **New camper-facing page `/leaderboard`** with 3 tabs:
+  1. **Most Catches** — top 10 campers by total catches this week (plus badge for legendaries/rares).
+  2. **Top Pokemon** — most-caught species this week (with image thumbnail & unique-catchers count).
+  3. **Most Distance** — top 10 campers by meters walked this week.
+- **My rank card** at the top of the Catches and Distance tabs shows the viewer's personal rank and total, even if they're not in the top-10 slice.
+- **Trophy button** added to MapPage top bar (`data-testid=open-leaderboard-btn`) opens the leaderboard.
+- **Back button** (`data-testid=leaderboard-back-btn`) returns to `/map`.
+- **ISO week scoping**: everything is scoped to the current ISO week (Monday 00:00 UTC) via `_week_start_iso()`.
+
+### New backend
+- `GET /api/leaderboard/weekly` (camper auth) returns `{week_start, top_catchers[], top_pokemon[], top_walkers[], me}`.
+- `POST /api/camper/position` now accumulates walked meters per day into the new collection `camper_distance_daily` (capped 5m < step < 200m to filter GPS jumps and parked-still polls).
+- New indexes: `camper_distance_daily({camper_id, date_ymd})` unique, and `camper_distance_daily(date_ymd)`.
+
+### New frontend
+- `/app/frontend/src/pages/LeaderboardPage.jsx` — 3-tab UI with medal emojis 🥇🥈🥉, highlighted "You" row, colored me-rank card, empty states.
+- Route registered in `/app/frontend/src/App.js` under auth-protected `/leaderboard`.
+
+### Quality
+- Backend pytest: 8/8 pass (iteration_5 suite) — auth required, week_start = Monday 00:00 UTC, catch/pokemon/walker shapes, is_me flag, step_meters cap.
+- Frontend Playwright: 7/7 flows pass (route protected, 3 tabs render, testids present, nav buttons).
+- Known note: Sonner spawn-toasts can momentarily overlap the MapPage trophy button on narrow screens — not a functional issue on real devices since toasts dismiss in ~3.5s.
