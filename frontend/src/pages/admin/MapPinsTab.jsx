@@ -99,7 +99,7 @@ export default function MapPinsTab() {
                             zoom={17}
                             onClick={onMapClick}
                             onLoad={(m) => (mapRef.current = m)}
-                            options={{ mapTypeId: "hybrid", disableDefaultUI: false, clickableIcons: false }}
+                            options={{ mapTypeId: "roadmap", disableDefaultUI: false, clickableIcons: false }}
                         >
                             {pins.map((p) => (
                                 <Marker

@@ -228,7 +228,7 @@ export default function MapPage() {
                         zoomControl: true,
                         clickableIcons: false,
                         gestureHandling: "greedy",
-                        mapTypeId: "hybrid",
+                        mapTypeId: "roadmap",
                     }}
                     onLoad={(m) => (mapRef.current = m)}
                 >
