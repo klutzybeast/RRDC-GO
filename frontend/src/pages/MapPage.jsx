@@ -27,7 +27,7 @@ const mapStyles = [
     { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
 
-const CATCH_RADIUS_METERS = 40;
+const DEFAULT_CATCH_RADIUS_METERS = 40;
 
 function metersBetween(a, b) {
     if (!a || !b) return Infinity;
@@ -41,6 +41,7 @@ export default function MapPage() {
     const { isLoaded, loadError } = useGoogleMaps();
     const nav = useNavigate();
     const [spawns, setSpawns] = useState([]);
+    const [catchRadius, setCatchRadius] = useState(DEFAULT_CATCH_RADIUS_METERS);
     const [enabled, setEnabled] = useState(true);
     const [pins, setPins] = useState([]);
     const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
@@ -169,6 +170,7 @@ export default function MapPage() {
                 setCenter({ lat: r.data.latitude, lng: r.data.longitude });
                 if (r.data.default_zoom) setZoom(r.data.default_zoom);
             }
+            if (r.data?.catch_radius_meters) setCatchRadius(Number(r.data.catch_radius_meters));
         }).catch(() => {});
     }, []);
 
@@ -299,7 +301,7 @@ export default function MapPage() {
     }, [spawns, myLocation]);
 
     const activeSpawn = rankedSpawns[0] || null;
-    const activeInRange = activeSpawn && activeSpawn._distance_m != null && activeSpawn._distance_m <= CATCH_RADIUS_METERS;
+    const activeInRange = activeSpawn && activeSpawn._distance_m != null && activeSpawn._distance_m <= catchRadius;
 
     const openCatchFor = (s) => {
         if (!s) return;
@@ -308,8 +310,8 @@ export default function MapPage() {
             return;
         }
         const dist = metersBetween(myLocation, { lat: s.latitude, lng: s.longitude });
-        if (isFinite(dist) && dist > CATCH_RADIUS_METERS) {
-            toast.error(`Walk closer — you're ${Math.round(dist)} m away (need to be within ${CATCH_RADIUS_METERS} m)`);
+        if (isFinite(dist) && dist > catchRadius) {
+            toast.error(`Walk closer — you're ${Math.round(dist)} m away (need to be within ${catchRadius} m)`);
             return;
         }
         nav(`/ar?spawn=${encodeURIComponent(s.spawn_id)}`);
@@ -377,7 +379,7 @@ export default function MapPage() {
                     {rankedSpawns.map((s) => {
                         if (s.latitude == null || s.longitude == null) return null;
                         const dist = s._distance_m;
-                        const inRange = dist != null && dist <= CATCH_RADIUS_METERS;
+                        const inRange = dist != null && dist <= catchRadius;
                         const glow = rarityGlow[s.pokemon.rarity] || rarityGlow.common;
                         return (
                             <OverlayView

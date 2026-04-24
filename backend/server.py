@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 0.95, "uncommon": 0.80, "rare": 0.55, "legendary": 0.25}
+CATCH_RATES = {"common": 0.98, "uncommon": 0.90, "rare": 0.75, "legendary": 0.55}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
@@ -126,6 +126,8 @@ class SpawnConfig(BaseModel):
     spawn_ttl_seconds: int = 3600  # 1h — effectively no timer during play
     max_active_spawns: int = 5
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
+    catch_rates: dict = Field(default_factory=lambda: CATCH_RATES.copy())
+    catch_radius_meters: int = 40  # How close a camper must be to a spawn to catch it
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
     camp_default_zoom: int = 18
@@ -497,12 +499,16 @@ async def load_spawn_config() -> dict:
         return cfg
     # Migration: old deployments had a short 600s TTL that caused Pokemon to
     # "time out" mid-catch. Bump to 1h so catching is not time-gated.
+    updates = {}
     if int(cfg.get("spawn_ttl_seconds", 0)) < 1800:
-        cfg["spawn_ttl_seconds"] = 3600
-        await db.spawn_config.update_one(
-            {"id": "singleton"},
-            {"$set": {"spawn_ttl_seconds": 3600}},
-        )
+        updates["spawn_ttl_seconds"] = 3600
+    if not cfg.get("catch_rates"):
+        updates["catch_rates"] = CATCH_RATES.copy()
+    if not cfg.get("catch_radius_meters"):
+        updates["catch_radius_meters"] = 40
+    if updates:
+        await db.spawn_config.update_one({"id": "singleton"}, {"$set": updates})
+        cfg.update(updates)
     return cfg
 
 
@@ -1005,7 +1011,8 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
 
     pokemon = cur["pokemon"]
     rarity = pokemon.get("rarity", "common")
-    base_rate = CATCH_RATES.get(rarity, 0.5)
+    effective_rates = cfg.get("catch_rates") or CATCH_RATES
+    base_rate = float(effective_rates.get(rarity, CATCH_RATES.get(rarity, 0.5)))
     success = random.random() < base_rate
 
     # Deduct one ball for the throw
@@ -1545,6 +1552,8 @@ async def get_camp_center(user=Depends(get_current_user)):
         "latitude": float(cfg.get("camp_latitude", 40.6396)),
         "longitude": float(cfg.get("camp_longitude", -73.6665)),
         "default_zoom": int(cfg.get("camp_default_zoom", 18)),
+        "catch_radius_meters": int(cfg.get("catch_radius_meters", 40)),
+        "catch_rates": cfg.get("catch_rates") or CATCH_RATES,
     }
 
 

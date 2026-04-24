@@ -26,10 +26,12 @@ export default function SpawnConfigTab() {
                 active_hours_start: Number(cfg.active_hours_start),
                 active_hours_end: Number(cfg.active_hours_end),
                 spawn_ttl_seconds: Number(cfg.spawn_ttl_seconds),
+                catch_radius_meters: Number(cfg.catch_radius_meters ?? 40),
                 camp_latitude: Number(cfg.camp_latitude || 40.7128),
                 camp_longitude: Number(cfg.camp_longitude || -74.0060),
                 camp_default_zoom: Number(cfg.camp_default_zoom || 17),
                 rarity_weights: Object.fromEntries(RARITIES.map((r) => [r, Number(cfg.rarity_weights?.[r] ?? 0)])),
+                catch_rates: Object.fromEntries(RARITIES.map((r) => [r, Math.max(0, Math.min(1, Number(cfg.catch_rates?.[r] ?? 0)))])),
             });
             toast.success("Spawn config saved");
         } catch (e) { toast.error(formatApiError(e)); }
@@ -135,6 +137,57 @@ export default function SpawnConfigTab() {
                                     onChange={(e) => setCfg({ ...cfg, rarity_weights: { ...cfg.rarity_weights, [r]: e.target.value } })}
                                     className="rounded-2xl h-11"
                                     data-testid={`rarity-weight-${r}`}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-white p-4 border border-amber-200">
+                    <Label className="text-base text-slate-900 font-bold">Catch radius (meters)</Label>
+                    <p className="text-xs text-slate-500 mb-3">
+                        How close a camper must be to a spawn to catch it. Lower = more walking / harder. Higher = easier for younger campers.
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="range"
+                            min="10"
+                            max="80"
+                            step="5"
+                            value={Number(cfg.catch_radius_meters ?? 40)}
+                            onChange={(e) => setCfg({ ...cfg, catch_radius_meters: e.target.value })}
+                            className="flex-1 h-2 rounded-full accent-amber-500"
+                            data-testid="catch-radius-slider"
+                        />
+                        <div className="w-16 text-right font-heading text-xl font-bold text-slate-900 tabular-nums" data-testid="catch-radius-value">
+                            {cfg.catch_radius_meters ?? 40} m
+                        </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-0.5 uppercase tracking-widest">
+                        <span>10 m — Hard</span>
+                        <span>40 m</span>
+                        <span>80 m — Easy</span>
+                    </div>
+                </div>
+
+                <div>
+                    <Label className="text-base">Catch success rates</Label>
+                    <p className="text-xs text-slate-500 mb-3">
+                        Probability a single ball throw catches the Pokemon (0.00 = never, 1.00 = always). Tune to make the game easier or harder.
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {RARITIES.map((r) => (
+                            <div key={r}>
+                                <Label className="text-xs capitalize">{r}</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="1"
+                                    step="0.05"
+                                    value={cfg.catch_rates?.[r] ?? 0}
+                                    onChange={(e) => setCfg({ ...cfg, catch_rates: { ...cfg.catch_rates, [r]: e.target.value } })}
+                                    className="rounded-2xl h-11"
+                                    data-testid={`catch-rate-${r}`}
                                 />
                             </div>
                         ))}
