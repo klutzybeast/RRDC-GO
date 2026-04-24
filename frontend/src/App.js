@@ -6,6 +6,7 @@ import LoginPage from "@/pages/LoginPage";
 import MapPage from "@/pages/MapPage";
 import ARPage from "@/pages/ARPage";
 import CollectionPage from "@/pages/CollectionPage";
+import LeaderboardPage from "@/pages/LeaderboardPage";
 import AdminLoginPage from "@/pages/AdminLoginPage";
 import AdminPage from "@/pages/AdminPage";
 import { Toaster } from "sonner";
@@ -44,6 +45,7 @@ export default function App() {
                                 <Route path="/map" element={<UserRoute><MapPage /></UserRoute>} />
                                 <Route path="/ar" element={<UserRoute><ARPage /></UserRoute>} />
                                 <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
+                                <Route path="/leaderboard" element={<UserRoute><LeaderboardPage /></UserRoute>} />
                                 <Route path="/admin/login" element={<AdminLoginPage />} />
                                 <Route path="/admin/*" element={<AdminRoute><AdminPage /></AdminRoute>} />
                                 <Route path="*" element={<Navigate to="/" replace />} />

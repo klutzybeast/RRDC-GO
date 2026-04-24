@@ -411,6 +411,8 @@ async def ensure_indexes():
     await db.map_pins.create_index("id", unique=True)
     await db.camper_positions.create_index("camper_id", unique=True)
     await db.camper_positions.create_index("updated_at")
+    await db.camper_distance_daily.create_index([("camper_id", 1), ("date_ymd", 1)], unique=True)
+    await db.camper_distance_daily.create_index("date_ymd")
     await db.camper_wallets.create_index("camper_id", unique=True)
     await db.ball_ledger.create_index("camper_id")
     await db.ball_ledger.create_index("created_at")
@@ -1149,6 +1151,162 @@ async def bank(user=Depends(get_current_user)):
 
 
 # ----------------------
+# USER - WEEKLY LEADERBOARD (kid-facing)
+# ----------------------
+def _week_start_iso() -> str:
+    """Start of the current ISO week (Monday 00:00 UTC)."""
+    now = now_utc()
+    monday = now - timedelta(days=now.weekday())
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    return monday.isoformat()
+
+
+async def _resolve_camper_names(camper_ids: List[str]) -> dict:
+    """Map camper_id -> display name. Uses campers collection, then falls back
+    to any recorded names on catch/distance rows when campers row is missing."""
+    out = {}
+    if not camper_ids:
+        return out
+    async for c in db.campers.find({"id": {"$in": camper_ids}}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "group_code": 1}):
+        out[c["id"]] = {
+            "first_name": c.get("first_name", ""),
+            "last_name": c.get("last_name", ""),
+            "group_code": c.get("group_code", ""),
+        }
+    return out
+
+
+@api.get("/leaderboard/weekly")
+async def weekly_leaderboard(user=Depends(get_current_user), limit: int = 10):
+    """Kid-facing weekly standings: top catchers, most-caught pokemon, longest walkers.
+    Scoped to the current ISO week (Mon 00:00 UTC). Also returns `me` = viewer's
+    personal stats + rank in each category."""
+    week_start = _week_start_iso()
+    me_id = user["id"]
+
+    # --- TOP CATCHERS (by catch count this week) ---
+    catch_pipeline = [
+        {"$match": {"caught_at": {"$gte": week_start}}},
+        {"$group": {
+            "_id": "$group_id",  # group_id == camper_id in this app's model
+            "count": {"$sum": 1},
+            "caught_by": {"$first": "$caught_by"},
+            "group_name": {"$first": "$group_name"},
+            "last_caught_at": {"$max": "$caught_at"},
+            "best_rarity_legendary": {"$sum": {"$cond": [{"$eq": ["$rarity", "legendary"]}, 1, 0]}},
+            "best_rarity_rare": {"$sum": {"$cond": [{"$eq": ["$rarity", "rare"]}, 1, 0]}},
+        }},
+        {"$sort": {"count": -1, "last_caught_at": 1}},
+    ]
+    catch_rows = await db.catches.aggregate(catch_pipeline).to_list(500)
+    camper_ids = [r["_id"] for r in catch_rows if r.get("_id")]
+    names = await _resolve_camper_names(camper_ids)
+    top_catchers = []
+    me_catch_rank = None
+    me_catch_count = 0
+    for idx, r in enumerate(catch_rows):
+        cid = r["_id"]
+        nm = names.get(cid, {})
+        entry = {
+            "camper_id": cid,
+            "first_name": nm.get("first_name") or r.get("caught_by") or "Camper",
+            "last_name": nm.get("last_name", ""),
+            "group_code": nm.get("group_code") or r.get("group_name", ""),
+            "catches": int(r["count"]),
+            "legendaries": int(r.get("best_rarity_legendary", 0)),
+            "rares": int(r.get("best_rarity_rare", 0)),
+            "is_me": cid == me_id,
+        }
+        if cid == me_id:
+            me_catch_rank = idx + 1
+            me_catch_count = int(r["count"])
+        if idx < limit:
+            top_catchers.append({**entry, "rank": idx + 1})
+
+    # --- MOST-CAUGHT POKEMON (species this week, across all campers) ---
+    poke_pipeline = [
+        {"$match": {"caught_at": {"$gte": week_start}}},
+        {"$group": {
+            "_id": "$pokemon_id",
+            "name": {"$first": "$pokemon_name"},
+            "image": {"$first": "$pokemon_image"},
+            "rarity": {"$first": "$rarity"},
+            "count": {"$sum": 1},
+            "unique_catchers": {"$addToSet": "$group_id"},
+        }},
+        {"$addFields": {"unique_catcher_count": {"$size": "$unique_catchers"}}},
+        {"$project": {"unique_catchers": 0}},
+        {"$sort": {"count": -1, "name": 1}},
+        {"$limit": limit},
+    ]
+    top_pokemon_rows = await db.catches.aggregate(poke_pipeline).to_list(limit)
+    top_pokemon = [
+        {
+            "rank": i + 1,
+            "pokemon_id": r["_id"],
+            "name": r.get("name", ""),
+            "image_data_url": r.get("image", "") or "",
+            "rarity": r.get("rarity", "common"),
+            "count": int(r.get("count", 0)),
+            "unique_catchers": int(r.get("unique_catcher_count", 0)),
+        }
+        for i, r in enumerate(top_pokemon_rows)
+    ]
+
+    # --- TOP WALKERS (meters accumulated this week) ---
+    week_ymd = (now_utc() - timedelta(days=now_utc().weekday())).strftime("%Y-%m-%d")
+    walk_pipeline = [
+        {"$match": {"date_ymd": {"$gte": week_ymd}}},
+        {"$group": {
+            "_id": "$camper_id",
+            "meters": {"$sum": "$meters"},
+            "first_name": {"$first": "$first_name"},
+            "last_name": {"$first": "$last_name"},
+            "group_code": {"$first": "$group_code"},
+        }},
+        {"$sort": {"meters": -1}},
+    ]
+    walk_rows = await db.camper_distance_daily.aggregate(walk_pipeline).to_list(500)
+    walker_ids = [r["_id"] for r in walk_rows if r.get("_id")]
+    walker_names = await _resolve_camper_names(walker_ids)
+    top_walkers = []
+    me_walk_rank = None
+    me_meters = 0.0
+    for idx, r in enumerate(walk_rows):
+        cid = r["_id"]
+        nm = walker_names.get(cid, {})
+        entry = {
+            "camper_id": cid,
+            "first_name": nm.get("first_name") or r.get("first_name") or "Camper",
+            "last_name": nm.get("last_name") or r.get("last_name", ""),
+            "group_code": nm.get("group_code") or r.get("group_code", ""),
+            "meters": float(r.get("meters", 0)),
+            "is_me": cid == me_id,
+        }
+        if cid == me_id:
+            me_walk_rank = idx + 1
+            me_meters = float(r.get("meters", 0))
+        if idx < limit:
+            top_walkers.append({**entry, "rank": idx + 1})
+
+    return {
+        "week_start": week_start,
+        "top_catchers": top_catchers,
+        "top_pokemon": top_pokemon,
+        "top_walkers": top_walkers,
+        "me": {
+            "camper_id": me_id,
+            "catches": me_catch_count,
+            "catch_rank": me_catch_rank,
+            "meters": round(me_meters, 1),
+            "walk_rank": me_walk_rank,
+            "total_campers_with_catches": len(catch_rows),
+            "total_campers_walking": len(walk_rows),
+        },
+    }
+
+
+# ----------------------
 # Health
 # ----------------------
 @api.get("/")
@@ -1402,10 +1560,12 @@ class PositionReq(BaseModel):
 @api.post("/camper/position")
 async def save_camper_position(req: PositionReq, user=Depends(get_current_user)):
     """Persist the camper's current position. Throttled server-side: only writes
-    if moved > 5 meters from last known or last write was > 20 s ago."""
+    if moved > 5 meters from last known or last write was > 20 s ago.
+    Also accumulates a daily 'meters walked' counter for the leaderboard."""
     now = now_utc()
     prev = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
     should_write = True
+    dist_m = 0.0
     if prev:
         last_at = datetime.fromisoformat(prev.get("updated_at", now.isoformat()))
         dt = (now - last_at).total_seconds()
@@ -1430,7 +1590,25 @@ async def save_camper_position(req: PositionReq, user=Depends(get_current_user))
             }},
             upsert=True,
         )
-    return {"saved": should_write}
+        # Accumulate walked meters for today (cap per-step to 200m to filter GPS jumps)
+        if prev and 0 < dist_m < 200:
+            ymd = now.strftime("%Y-%m-%d")
+            await db.camper_distance_daily.update_one(
+                {"camper_id": user["id"], "date_ymd": ymd},
+                {
+                    "$inc": {"meters": float(dist_m)},
+                    "$setOnInsert": {
+                        "camper_id": user["id"],
+                        "group_code": user.get("group_name", ""),
+                        "first_name": user.get("first_name", ""),
+                        "last_name": user.get("last_name", ""),
+                        "date_ymd": ymd,
+                    },
+                    "$set": {"updated_at": now.isoformat()},
+                },
+                upsert=True,
+            )
+    return {"saved": should_write, "step_meters": round(dist_m, 2)}
 
 
 @api.get("/admin/camper-positions")

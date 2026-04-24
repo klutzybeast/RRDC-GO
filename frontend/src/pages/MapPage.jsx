@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
@@ -465,6 +465,15 @@ export default function MapPage() {
                         data-testid="show-onboarding-btn"
                     >
                         <HelpCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => nav("/leaderboard")}
+                        className="glass-dark rounded-full p-2"
+                        aria-label="Leaderboard"
+                        data-testid="open-leaderboard-btn"
+                        title="Weekly leaderboard"
+                    >
+                        <Trophy className="w-4 h-4" />
                     </button>
                     <button
                         onClick={() => nav("/collection")}
