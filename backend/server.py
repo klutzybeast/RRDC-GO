@@ -5,6 +5,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import uuid
+import math
 import random
 import logging
 import base64
@@ -525,7 +526,19 @@ async def pick_map_pin() -> Optional[dict]:
     return docs[0] if docs else None
 
 
-async def maybe_create_spawn(group_id: str, cfg: dict) -> dict:
+def jitter_location(lat: float, lng: float, min_m: float = 8.0, max_m: float = 30.0) -> (float, float):
+    """Return a random point within [min_m, max_m] meters of (lat, lng)."""
+    # 1 deg lat ~ 111_111 m; 1 deg lng ~ 111_111 * cos(lat) m
+    distance_m = random.uniform(min_m, max_m)
+    bearing = random.uniform(0, 2 * math.pi)
+    dx = distance_m * math.cos(bearing)  # east-west offset in meters
+    dy = distance_m * math.sin(bearing)  # north-south offset in meters
+    dlat = dy / 111_111.0
+    dlng = dx / (111_111.0 * max(math.cos(math.radians(lat)), 0.000001))
+    return lat + dlat, lng + dlng
+
+
+async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[float] = None, camper_lng: Optional[float] = None) -> dict:
     """Return the refreshed group state, creating a spawn if due."""
     state = await get_or_create_group_state(group_id)
 
@@ -563,14 +576,23 @@ async def maybe_create_spawn(group_id: str, cfg: dict) -> dict:
         state["next_spawn_at"] = (now_utc() + timedelta(minutes=1)).isoformat()
         return state
 
-    # Pick a map pin (optional - if none, spawn still works without location)
-    pin = await pick_map_pin()
+    # Pick spawn location: prefer camper's current GPS (jittered) → pin → camp center
     lat, lng, pin_name, pin_id = None, None, None, None
-    if pin:
-        lat = pin.get("latitude")
-        lng = pin.get("longitude")
-        pin_name = pin.get("name")
-        pin_id = pin.get("id")
+    if camper_lat is not None and camper_lng is not None:
+        lat, lng = jitter_location(float(camper_lat), float(camper_lng))
+        pin_name = "Nearby"
+    else:
+        pin = await pick_map_pin()
+        if pin:
+            lat = pin.get("latitude")
+            lng = pin.get("longitude")
+            pin_name = pin.get("name")
+            pin_id = pin.get("id")
+        else:
+            lat = float(cfg.get("camp_latitude", 40.6396))
+            lng = float(cfg.get("camp_longitude", -73.6665))
+            lat, lng = jitter_location(lat, lng, 10, 40)
+            pin_name = "Camp"
 
     ttl = int(cfg.get("spawn_ttl_seconds", 120))
     spawn = {
@@ -878,9 +900,13 @@ async def admin_analytics(admin=Depends(get_current_admin)):
 # USER - SPAWN
 # ----------------------
 @api.get("/spawn/current", response_model=SpawnPollResponse)
-async def spawn_current(user=Depends(get_current_user)):
+async def spawn_current(
+    user=Depends(get_current_user),
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+):
     cfg = await load_spawn_config()
-    state = await maybe_create_spawn(user["id"], cfg)
+    state = await maybe_create_spawn(user["id"], cfg, camper_lat=lat, camper_lng=lng)
     resp = SpawnPollResponse(enabled=bool(cfg.get("enabled", True)))
     cur = state.get("current_spawn")
     if cur:
@@ -1266,6 +1292,104 @@ async def get_camp_center(user=Depends(get_current_user)):
         "latitude": float(cfg.get("camp_latitude", 40.6396)),
         "longitude": float(cfg.get("camp_longitude", -73.6665)),
         "default_zoom": int(cfg.get("camp_default_zoom", 18)),
+    }
+
+
+# ----------------------
+# ADMIN - TEST POKEMON SEED (Nano Banana image generation)
+# ----------------------
+TEST_POKEMON_SEED = [
+    {"name": "Otterpaw", "rarity": "common", "power_level": 120, "description": "Playful river otter who juggles stones.", "prompt": "A cute cartoon Pokemon creature: a friendly baby river otter with big sparkling eyes, sleek brown fur, a cream belly, holding a tiny smooth pebble, centered, full-body, transparent background, bold outline, flat vibrant colors, kawaii camp mascot style"},
+    {"name": "Pinesprout", "rarity": "common", "power_level": 110, "description": "A tiny pinecone sprite bouncing through the forest.", "prompt": "A cute cartoon Pokemon creature: a plump pinecone with round cheeks, tiny stubby legs, green pine-needle tuft on top, bright innocent eyes, centered, full-body, transparent background, flat vibrant colors, kawaii forest spirit style"},
+    {"name": "Sunnybug", "rarity": "common", "power_level": 130, "description": "A ladybug that glows in the noon sun.", "prompt": "A cute cartoon Pokemon creature: a round smiling ladybug with golden sun-ray wings, red shell with yellow dots, big friendly eyes, centered, full-body, transparent background, flat vibrant colors, kawaii summer camp style"},
+    {"name": "Splashling", "rarity": "uncommon", "power_level": 260, "description": "A living water droplet from the camp pool.", "prompt": "A cute cartoon Pokemon creature: an anthropomorphic water droplet with rosy cheeks and a curled wave on top, translucent aqua blue, big friendly eyes, tiny water-fin arms, centered, full-body, transparent background, flat vibrant colors"},
+    {"name": "Mossmouse", "rarity": "uncommon", "power_level": 280, "description": "A mouse wearing a moss cloak.", "prompt": "A cute cartoon Pokemon creature: a tiny field mouse wrapped in a bright green moss cape with tiny mushrooms, acorn cap hat, playful curious expression, centered, full-body, transparent background, flat vibrant colors, kawaii woodland creature"},
+    {"name": "Campfly", "rarity": "uncommon", "power_level": 300, "description": "A firefly with a lantern tail.", "prompt": "A cute cartoon Pokemon creature: a big round firefly with a glowing amber lantern abdomen, translucent wings, friendly round eyes, centered, full-body, transparent background, flat vibrant colors, kawaii night camp style"},
+    {"name": "Ember Ash", "rarity": "rare", "power_level": 480, "description": "A friendly campfire ember that hops around.", "prompt": "A cute cartoon Pokemon creature: a small living campfire flame with a warm orange-yellow body, cheerful face, tiny twig arms, crackling sparks around it, centered, full-body, transparent background, flat vibrant colors, kawaii fire elemental"},
+    {"name": "Canoebeak", "rarity": "rare", "power_level": 520, "description": "A bird whose beak is a wooden canoe.", "prompt": "A cute cartoon Pokemon creature: a plump waterbird with a wooden canoe-shaped beak, blue-gray feathers, paddle-shaped wings, friendly eyes, centered, full-body, transparent background, flat vibrant colors, kawaii lake creature"},
+    {"name": "Sky Glider", "rarity": "rare", "power_level": 560, "description": "A flying squirrel with kite ears.", "prompt": "A cute cartoon Pokemon creature: a cheerful flying squirrel with oversized triangular kite-like ears, fluffy tail trailing, warm amber fur, big sparkling eyes, mid-glide pose, centered, full-body, transparent background, flat vibrant colors"},
+    {"name": "Totem Tusk", "rarity": "legendary", "power_level": 820, "description": "Guardian of the camp trails — rare sighting.", "prompt": "A legendary cartoon Pokemon creature: a majestic forest deer with glowing turquoise antlers that resemble tree branches, pale ivory fur with subtle tribal markings, soft aura of floating leaves, centered, full-body, transparent background, vibrant colors, epic mythical creature style"},
+    {"name": "Rainbow Koi", "rarity": "legendary", "power_level": 880, "description": "A rainbow koi blessing the lake — super rare.", "prompt": "A legendary cartoon Pokemon creature: a magnificent koi fish with a rainbow shimmering scale pattern, flowing silk-like fins, water droplet aura around it, centered, full-body, transparent background, vibrant holographic colors, majestic style"},
+    {"name": "Starfire Owl", "rarity": "legendary", "power_level": 920, "description": "A golden owl that only appears at dusk.", "prompt": "A legendary cartoon Pokemon creature: a regal horned owl with golden star-dust feathers, crescent moon chest mark, warm glowing eyes, soft radiant aura, perched pose, centered, full-body, transparent background, vibrant mythical colors"},
+]
+
+
+async def _generate_pokemon_image(prompt: str) -> Optional[str]:
+    """Generate a PNG image via Gemini Nano Banana, return data: URL or None on failure."""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as e:
+        logger.error(f"emergentintegrations import failed: {e}")
+        return None
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        logger.error("EMERGENT_LLM_KEY missing")
+        return None
+    chat = (LlmChat(api_key=api_key, session_id=f"pokemon-{uuid.uuid4()}", system_message="You generate cute cartoon Pokemon-style creature images.")
+            .with_model("gemini", "gemini-3.1-flash-image-preview")
+            .with_params(modalities=["image", "text"]))
+    try:
+        _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
+    except Exception as e:
+        logger.error(f"Image generation failed: {e}")
+        return None
+    if not images:
+        return None
+    img = images[0]
+    b64 = img.get("data") or ""
+    mime = img.get("mime_type") or "image/png"
+    if not b64:
+        return None
+    return f"data:{mime};base64,{b64}"
+
+
+@api.post("/admin/seed-test-pokemon")
+async def admin_seed_test_pokemon(admin=Depends(get_current_admin)):
+    """Generate 12 cartoon Pokemon images using Nano Banana and save into existing empty slots as active."""
+    # Find the first 12 empty slots (no image yet) sorted by slot_number
+    empty_slots = []
+    async for p in db.pokemon.find({"image_data_url": ""}, {"_id": 0}).sort("slot_number", 1).limit(len(TEST_POKEMON_SEED)):
+        empty_slots.append(p)
+    if len(empty_slots) < len(TEST_POKEMON_SEED):
+        # Fall back to just the available ones
+        logger.info(f"Only {len(empty_slots)} empty slots available; using those.")
+
+    async def seed_one(slot: dict, seed: dict):
+        data_url = await _generate_pokemon_image(seed["prompt"])
+        if not data_url:
+            return {"slot": slot["slot_number"], "ok": False, "error": "image generation failed"}
+        await db.pokemon.update_one(
+            {"id": slot["id"]},
+            {"$set": {
+                "name": seed["name"],
+                "rarity": seed["rarity"],
+                "power_level": int(seed["power_level"]),
+                "description": seed["description"],
+                "image_data_url": data_url,
+                "active": True,
+            }},
+        )
+        return {"slot": slot["slot_number"], "ok": True, "name": seed["name"]}
+
+    # Run in parallel with a concurrency cap
+    sem = asyncio.Semaphore(3)
+    async def bounded(slot, seed):
+        async with sem:
+            return await seed_one(slot, seed)
+
+    tasks = [bounded(slot, seed) for slot, seed in zip(empty_slots, TEST_POKEMON_SEED)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    cleaned = []
+    for r in results:
+        if isinstance(r, Exception):
+            cleaned.append({"ok": False, "error": str(r)})
+        else:
+            cleaned.append(r)
+    success_count = sum(1 for r in cleaned if isinstance(r, dict) and r.get("ok"))
+    return {
+        "seeded": success_count,
+        "attempted": len(tasks),
+        "results": cleaned,
     }
 
 

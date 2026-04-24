@@ -68,10 +68,17 @@ export default function MapPage() {
         setShowOnboarding(false);
     };
 
-    // Poll spawn
+    // Poll spawn — pass camper GPS when available so spawns appear near them
+    const myLocRef = useRef(null);
+    useEffect(() => { myLocRef.current = myLocation; }, [myLocation]);
     const poll = React.useCallback(async () => {
         try {
-            const res = await userApi.get("/spawn/current");
+            const params = {};
+            if (myLocRef.current) {
+                params.lat = myLocRef.current.lat;
+                params.lng = myLocRef.current.lng;
+            }
+            const res = await userApi.get("/spawn/current", { params });
             setEnabled(res.data.enabled);
             setNextSpawnAt(res.data.next_spawn_at);
             const s = res.data.spawn;

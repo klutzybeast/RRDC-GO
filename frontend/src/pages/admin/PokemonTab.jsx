@@ -20,6 +20,7 @@ export default function PokemonTab() {
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", description: "", active: false });
     const [uploading, setUploading] = useState(false);
+    const [seeding, setSeeding] = useState(false);
     const fileRef = useRef(null);
 
     const load = () => {
@@ -90,6 +91,23 @@ export default function PokemonTab() {
                         <span data-testid="pokemon-active-count">{activeCount}</span> active / {list.length} total slots
                     </p>
                 </div>
+                <Button
+                    onClick={async () => {
+                        if (!window.confirm("Generate 12 AI Pokemon images and activate them? Takes ~1 minute.")) return;
+                        setSeeding(true);
+                        try {
+                            const r = await adminApi.post("/admin/seed-test-pokemon");
+                            toast.success(`Seeded ${r.data.seeded} / ${r.data.attempted} Pokemon`);
+                            load();
+                        } catch (e) { toast.error(formatApiError(e)); }
+                        finally { setSeeding(false); }
+                    }}
+                    disabled={seeding}
+                    className="tactile-btn rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-heading font-bold"
+                    data-testid="seed-test-pokemon-btn"
+                >
+                    {seeding ? "Generating…" : "✨ Seed 12 Test Pokemon"}
+                </Button>
             </div>
 
             {loading ? (
