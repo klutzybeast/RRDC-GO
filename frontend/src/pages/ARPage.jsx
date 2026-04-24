@@ -77,6 +77,10 @@ export default function ARPage() {
     const pollRef = useRef(null);
     const prevSpawnRef = useRef(null);
 
+    // Wallet
+    const { wallet, refresh: refreshWallet, claimDaily } = useWallet(true);
+    const [showOutOfBalls, setShowOutOfBalls] = useState(false);
+
     useEffect(() => {
         startCam();
         return () => stopCam();
@@ -130,12 +134,16 @@ export default function ARPage() {
 
     const throwBall = async () => {
         if (!spawn || throwing) return;
+        if ((wallet?.balance ?? 0) < 1) {
+            setShowOutOfBalls(true);
+            return;
+        }
         setThrowing(true);
         setShowBallAnim(true);
-        // animate duration ~700ms
         await new Promise((r) => setTimeout(r, 700));
         try {
             const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id });
+            refreshWallet();
             if (res.data.success) {
                 setResult(res.data);
                 setSpawn(null);
@@ -150,7 +158,13 @@ export default function ARPage() {
                 prevSpawnRef.current = null;
             }
         } catch (e) {
-            toast.error(formatApiError(e));
+            const msg = formatApiError(e);
+            if (msg?.toLowerCase?.().includes("out of")) {
+                setShowOutOfBalls(true);
+            } else {
+                toast.error(msg);
+            }
+            refreshWallet();
         } finally {
             setShowBallAnim(false);
             setThrowing(false);
@@ -214,7 +228,8 @@ export default function ARPage() {
                     >
                         ← Map
                     </button>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        <BallCounter balance={wallet?.balance} onClick={() => setShowOutOfBalls(true)} />
                         <button
                             onClick={() => nav("/collection")}
                             className="glass-dark rounded-full px-3 py-2 text-sm font-bold flex items-center gap-2"
@@ -338,6 +353,21 @@ export default function ARPage() {
                 result={result}
                 onClose={() => { setResult(null); nav("/map"); }}
                 onGoToCollection={() => { setResult(null); nav("/collection"); }}
+            />
+            <OutOfBallsModal
+                open={showOutOfBalls}
+                onClose={() => setShowOutOfBalls(false)}
+                canClaimDaily={wallet?.can_claim_daily}
+                nextDailyAt={wallet?.next_daily_at}
+                daily={wallet?.daily_bonus ?? 25}
+                pinBonus={wallet?.pin_bonus ?? 5}
+                onClaimDaily={async () => {
+                    const r = await claimDaily();
+                    if (r.ok) {
+                        toast.success(`+${r.granted} balls`);
+                        setShowOutOfBalls(false);
+                    }
+                }}
             />
         </div>
     );

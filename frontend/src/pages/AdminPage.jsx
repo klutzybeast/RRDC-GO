@@ -2,16 +2,18 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
-import { LogOut, Users, Sparkles, Clock, BarChart3, MapPin } from "lucide-react";
+import { LogOut, Users, Sparkles, Clock, BarChart3, MapPin, HandCoins } from "lucide-react";
 import RosterTab from "./admin/RosterTab";
 import PokemonTab from "./admin/PokemonTab";
 import SpawnConfigTab from "./admin/SpawnConfigTab";
 import AnalyticsTab from "./admin/AnalyticsTab";
 import MapPinsTab from "./admin/MapPinsTab";
+import WalletTab from "./admin/WalletTab";
 
 const TABS = [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "roster", label: "Roster", icon: Users },
+    { id: "wallet", label: "Balls", icon: HandCoins },
     { id: "pokemon", label: "Pokemon", icon: Sparkles },
     { id: "pins", label: "Map Pins", icon: MapPin },
     { id: "spawns", label: "Spawns", icon: Clock },
@@ -67,6 +69,7 @@ export default function AdminPage() {
             <div className="max-w-7xl mx-auto p-4 sm:p-8">
                 {tab === "analytics" && <AnalyticsTab />}
                 {tab === "roster" && <RosterTab />}
+                {tab === "wallet" && <WalletTab />}
                 {tab === "pokemon" && <PokemonTab />}
                 {tab === "pins" && <MapPinsTab />}
                 {tab === "spawns" && <SpawnConfigTab />}

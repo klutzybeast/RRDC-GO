@@ -404,6 +404,9 @@ async def ensure_indexes():
     await db.map_pins.create_index("id", unique=True)
     await db.camper_positions.create_index("camper_id", unique=True)
     await db.camper_positions.create_index("updated_at")
+    await db.camper_wallets.create_index("camper_id", unique=True)
+    await db.ball_ledger.create_index("camper_id")
+    await db.ball_ledger.create_index("created_at")
 
 
 @app.on_event("startup")
@@ -938,10 +941,18 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     if datetime.fromisoformat(cur["expires_at"]) <= now_utc():
         raise HTTPException(400, "Spawn expired")
 
+    # Require at least one ball to throw
+    wallet = await get_or_init_wallet(user["id"])
+    if int(wallet["balance"]) < 1:
+        raise HTTPException(402, "You're out of Rolling River Balls! Earn more by walking to a camp pin or come back tomorrow.")
+
     pokemon = cur["pokemon"]
     rarity = pokemon.get("rarity", "common")
     base_rate = CATCH_RATES.get(rarity, 0.5)
     success = random.random() < base_rate
+
+    # Deduct one ball for the throw
+    wallet = await adjust_balls(user["id"], -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
 
     # Pick next spawn time
     gap_min = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
@@ -952,9 +963,12 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             {"group_id": user["id"]},
             {"$set": {"current_spawn": None, "next_spawn_at": next_at}},
         )
-        return CatchResult(success=False, message=f"{pokemon['name']} got away!")
+        return CatchResult(success=False, message=f"{pokemon['name']} got away!", power_rolled=wallet["balance"])
 
-    # Roll power level: between 70% and 100% of base
+    # Catch rewards
+    reward = CATCH_REWARD.get(rarity, 0)
+    wallet = await adjust_balls(user["id"], reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"]})
+
     base_pl = int(pokemon.get("power_level", 100))
     power_rolled = max(1, min(1000, random.randint(max(1, int(base_pl * 0.7)), base_pl)))
 
@@ -984,7 +998,7 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         power_rolled=power_rolled,
         caught_by=user["username"],
         caught_at=datetime.fromisoformat(caught_at),
-        message=f"Caught {pokemon['name']}!",
+        message=f"Caught {pokemon['name']}! +{reward} balls",
     )
 
 
@@ -1460,6 +1474,183 @@ async def admin_seed_test_pokemon(admin=Depends(get_current_admin)):
         "attempted": len(tasks),
         "results": cleaned,
     }
+
+
+# ----------------------
+# BALL WALLET ECONOMY
+# ----------------------
+STARTING_BALLS = 200
+DAILY_BONUS = 25
+PIN_BONUS = 5
+PIN_PROXIMITY_METERS = 15  # server-side validation radius
+CATCH_REWARD = {"common": 1, "uncommon": 2, "rare": 5, "legendary": 15}
+
+
+async def get_or_init_wallet(camper_id: str) -> dict:
+    w = await db.camper_wallets.find_one({"camper_id": camper_id}, {"_id": 0})
+    if w:
+        return w
+    now = now_utc().isoformat()
+    w = {"camper_id": camper_id, "balance": STARTING_BALLS, "starting_granted": True, "updated_at": now, "created_at": now}
+    await db.camper_wallets.insert_one(w)
+    await db.ball_ledger.insert_one({
+        "id": str(uuid.uuid4()),
+        "camper_id": camper_id,
+        "delta": STARTING_BALLS,
+        "reason": "starter",
+        "meta": {},
+        "balance_after": STARTING_BALLS,
+        "created_at": now,
+    })
+    return w
+
+
+async def adjust_balls(camper_id: str, delta: int, reason: str, meta: dict = None) -> dict:
+    """Atomically update balance and record ledger entry. Returns updated wallet."""
+    wallet = await get_or_init_wallet(camper_id)
+    new_balance = max(0, int(wallet["balance"]) + int(delta))
+    now = now_utc().isoformat()
+    await db.camper_wallets.update_one(
+        {"camper_id": camper_id},
+        {"$set": {"balance": new_balance, "updated_at": now}},
+    )
+    await db.ball_ledger.insert_one({
+        "id": str(uuid.uuid4()),
+        "camper_id": camper_id,
+        "delta": int(delta),
+        "reason": reason,
+        "meta": meta or {},
+        "balance_after": new_balance,
+        "created_at": now,
+    })
+    wallet["balance"] = new_balance
+    return wallet
+
+
+async def last_ledger_by_reason(camper_id: str, reason: str, since: Optional[datetime] = None) -> Optional[dict]:
+    q = {"camper_id": camper_id, "reason": reason}
+    if since:
+        q["created_at"] = {"$gte": since.isoformat()}
+    doc = await db.ball_ledger.find_one(q, {"_id": 0}, sort=[("created_at", -1)])
+    return doc
+
+
+class WalletOut(BaseModel):
+    balance: int
+    starting_balance: int = STARTING_BALLS
+    daily_bonus: int = DAILY_BONUS
+    pin_bonus: int = PIN_BONUS
+    catch_reward: dict = CATCH_REWARD
+    can_claim_daily: bool = True
+    next_daily_at: Optional[datetime] = None
+
+
+@api.get("/wallet", response_model=WalletOut)
+async def get_wallet(user=Depends(get_current_user)):
+    w = await get_or_init_wallet(user["id"])
+    since = now_utc() - timedelta(hours=24)
+    last_daily = await last_ledger_by_reason(user["id"], "daily_bonus", since=since)
+    can = last_daily is None
+    next_at = None
+    if last_daily:
+        last_at = datetime.fromisoformat(last_daily["created_at"])
+        next_at = last_at + timedelta(hours=24)
+    return WalletOut(balance=int(w["balance"]), can_claim_daily=can, next_daily_at=next_at)
+
+
+@api.post("/wallet/claim-daily")
+async def claim_daily(user=Depends(get_current_user)):
+    since = now_utc() - timedelta(hours=24)
+    last = await last_ledger_by_reason(user["id"], "daily_bonus", since=since)
+    if last:
+        last_at = datetime.fromisoformat(last["created_at"])
+        remaining = (last_at + timedelta(hours=24)) - now_utc()
+        hrs = max(0, int(remaining.total_seconds() // 3600))
+        raise HTTPException(429, f"Daily already claimed. Come back in ~{hrs} hours.")
+    wallet = await adjust_balls(user["id"], DAILY_BONUS, "daily_bonus")
+    return {"granted": DAILY_BONUS, "balance": wallet["balance"]}
+
+
+@api.post("/wallet/claim-pin/{pin_id}")
+async def claim_pin(pin_id: str, user=Depends(get_current_user)):
+    pin = await db.map_pins.find_one({"id": pin_id, "active": True}, {"_id": 0})
+    if not pin:
+        raise HTTPException(404, "Pin not found or inactive")
+    # Rate limit: once per pin per 24h per camper
+    since = now_utc() - timedelta(hours=24)
+    last = await db.ball_ledger.find_one({
+        "camper_id": user["id"],
+        "reason": "pin_bonus",
+        "meta.pin_id": pin_id,
+        "created_at": {"$gte": since.isoformat()},
+    }, {"_id": 0})
+    if last:
+        raise HTTPException(429, "Already claimed this pin today")
+    # Validate camper is actually near the pin
+    pos = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
+    if not pos:
+        raise HTTPException(400, "Your location hasn't been shared yet.")
+    dlat = (float(pos["latitude"]) - float(pin["latitude"])) * 111_111.0
+    dlng = (float(pos["longitude"]) - float(pin["longitude"])) * 111_111.0 * math.cos(math.radians(float(pos["latitude"])))
+    dist_m = (dlat * dlat + dlng * dlng) ** 0.5
+    if dist_m > PIN_PROXIMITY_METERS:
+        raise HTTPException(400, f"Walk closer to '{pin.get('name','the pin')}' — you're ~{int(dist_m)} m away.")
+    wallet = await adjust_balls(user["id"], PIN_BONUS, "pin_bonus", {"pin_id": pin_id, "pin_name": pin.get("name")})
+    return {"granted": PIN_BONUS, "balance": wallet["balance"], "pin_name": pin.get("name")}
+
+
+@api.get("/wallet/ledger")
+async def wallet_ledger(user=Depends(get_current_user), limit: int = 25):
+    out = []
+    async for e in db.ball_ledger.find({"camper_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(limit):
+        out.append(e)
+    return out
+
+
+# --------- Admin wallet endpoints ---------
+class GrantReq(BaseModel):
+    amount: int
+    reason: Optional[str] = "counselor_award"
+
+
+@api.post("/admin/wallet/{camper_id}/grant")
+async def admin_grant_balls(camper_id: str, req: GrantReq, admin=Depends(get_current_admin)):
+    camper = await db.campers.find_one({"id": camper_id}, {"_id": 0})
+    if not camper:
+        raise HTTPException(404, "Camper not found")
+    if req.amount == 0:
+        raise HTTPException(400, "Amount must be non-zero")
+    if abs(req.amount) > 1000:
+        raise HTTPException(400, "Amount out of range")
+    wallet = await adjust_balls(camper_id, int(req.amount), req.reason or "counselor_award", {"admin": admin.get("username", "admin")})
+    return {"balance": wallet["balance"], "granted": req.amount, "camper": f"{camper.get('first_name','')} {camper.get('last_name','')}".strip()}
+
+
+@api.get("/admin/wallet/balances")
+async def admin_list_balances(admin=Depends(get_current_admin)):
+    balances = {}
+    async for w in db.camper_wallets.find({}, {"_id": 0}):
+        balances[w["camper_id"]] = int(w.get("balance", 0))
+    # Merge with campers list so admin sees campers with no wallet yet
+    out = []
+    async for c in db.campers.find({}, {"_id": 0}).sort([("group_code", 1), ("last_name", 1)]):
+        out.append({
+            "camper_id": c["id"],
+            "first_name": c.get("first_name", ""),
+            "last_name": c.get("last_name", ""),
+            "group_code": c.get("group_code", ""),
+            "balance": int(balances.get(c["id"], STARTING_BALLS)),
+            "has_wallet": c["id"] in balances,
+        })
+    return out
+
+
+@api.get("/admin/wallet/ledger")
+async def admin_ledger(admin=Depends(get_current_admin), limit: int = 100):
+    out = []
+    async for e in db.ball_ledger.find({}, {"_id": 0}).sort("created_at", -1).limit(limit):
+        out.append(e)
+    return out
 
 
 # Mount router

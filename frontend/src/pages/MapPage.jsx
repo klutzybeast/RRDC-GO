@@ -9,6 +9,9 @@ import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair, HelpCircle } from "l
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
+import BallCounter from "../components/BallCounter";
+import OutOfBallsModal from "../components/OutOfBallsModal";
+import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
 const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
@@ -67,6 +70,52 @@ export default function MapPage() {
         if (onboardingKey) localStorage.setItem(onboardingKey, "1");
         setShowOnboarding(false);
     };
+
+    // Wallet
+    const { wallet, refresh: refreshWallet, claimDaily, claimPin } = useWallet(true);
+    const [ballDelta, setBallDelta] = useState(null);
+    const [showOutOfBalls, setShowOutOfBalls] = useState(false);
+    const flashDelta = (d) => {
+        setBallDelta(d);
+        setTimeout(() => setBallDelta(null), 1500);
+    };
+
+    // Auto-claim daily bonus on mount
+    useEffect(() => {
+        if (wallet?.can_claim_daily) {
+            claimDaily().then((r) => {
+                if (r.ok) {
+                    toast.success(`Daily bonus! +${r.granted} balls`);
+                    flashDelta(r.granted);
+                }
+            });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wallet?.can_claim_daily]);
+
+    // Auto-claim nearby pin (within ~12m) once per pin per 12h client-side
+    const pinClaimsRef = useRef({}); // {pinId: timestamp}
+    useEffect(() => {
+        if (!myLocation || pins.length === 0) return;
+        for (const p of pins) {
+            if (!p.active) continue;
+            const last = pinClaimsRef.current[p.id];
+            if (last && Date.now() - last < 12 * 60 * 60 * 1000) continue;
+            const dlat = (myLocation.lat - p.latitude) * 111111;
+            const dlng = (myLocation.lng - p.longitude) * 111111 * Math.cos((myLocation.lat * Math.PI) / 180);
+            const dist = Math.sqrt(dlat * dlat + dlng * dlng);
+            if (dist <= 12) {
+                pinClaimsRef.current[p.id] = Date.now();
+                claimPin(p.id).then((r) => {
+                    if (r.ok) {
+                        toast.success(`📍 ${r.pin_name}: +${r.granted} balls`);
+                        flashDelta(r.granted);
+                    }
+                });
+                break; // one at a time
+            }
+        }
+    }, [myLocation, pins, claimPin]);
 
     // Poll spawn — pass camper GPS when available so spawns appear near them
     const myLocRef = useRef(null);
@@ -343,12 +392,17 @@ export default function MapPage() {
             <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 pointer-events-none safe-top">
                 <div className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 pointer-events-auto min-w-0" data-testid="camper-badge">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                    <span className="truncate max-w-[40vw] sm:max-w-none">
+                    <span className="truncate max-w-[34vw] sm:max-w-none">
                         {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
                     </span>
                     <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 ml-1 shrink-0">{user?.group_name}</span>
                 </div>
-                <div className="flex gap-1.5 sm:gap-2 pointer-events-auto">
+                <div className="flex gap-1.5 sm:gap-2 pointer-events-auto items-center">
+                    <BallCounter
+                        balance={wallet?.balance}
+                        delta={ballDelta}
+                        onClick={() => setShowOutOfBalls(true)}
+                    />
                     <button
                         onClick={() => setShowOnboarding(true)}
                         className="glass-dark rounded-full p-2"
@@ -451,6 +505,24 @@ export default function MapPage() {
                 open={showOnboarding}
                 camperName={user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
                 onFinish={dismissOnboarding}
+            />
+            <OutOfBallsModal
+                open={showOutOfBalls}
+                onClose={() => setShowOutOfBalls(false)}
+                canClaimDaily={wallet?.can_claim_daily}
+                nextDailyAt={wallet?.next_daily_at}
+                daily={wallet?.daily_bonus ?? 25}
+                pinBonus={wallet?.pin_bonus ?? 5}
+                onClaimDaily={async () => {
+                    const r = await claimDaily();
+                    if (r.ok) {
+                        toast.success(`+${r.granted} balls`);
+                        flashDelta(r.granted);
+                        setShowOutOfBalls(false);
+                    } else {
+                        toast.error(r.error);
+                    }
+                }}
             />
         </div>
     );
