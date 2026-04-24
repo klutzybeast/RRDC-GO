@@ -2,25 +2,24 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GoogleMap, Marker, OverlayView } from "@react-google-maps/api";
 import { motion } from "framer-motion";
-import { userApi, formatApiError } from "../lib/api";
+import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair, HelpCircle } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
 import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
+import RiverBall from "../components/RiverBall";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
-const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
-
-const rarityColor = {
-    common: "#94A3B8",
-    uncommon: "#22C55E",
-    rare: "#3B82F6",
-    legendary: "#FBBF24",
+const rarityGlow = {
+    common: "rgba(148, 163, 184, 0.55)",
+    uncommon: "rgba(34, 197, 94, 0.55)",
+    rare: "rgba(59, 130, 246, 0.6)",
+    legendary: "rgba(251, 191, 36, 0.75)",
 };
 
 const mapStyles = [
@@ -37,26 +36,11 @@ function metersBetween(a, b) {
     return Math.sqrt(dlat * dlat + dlng * dlng);
 }
 
-function Countdown({ until }) {
-    const [, setTick] = useState(0);
-    useEffect(() => {
-        const id = setInterval(() => setTick((x) => x + 1), 1000);
-        return () => clearInterval(id);
-    }, []);
-    if (!until) return null;
-    const ms = new Date(until).getTime() - Date.now();
-    if (ms <= 0) return <span>now</span>;
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.floor((ms % 60000) / 1000);
-    return <span>{mins > 0 ? `${mins}m ` : ""}{secs}s</span>;
-}
-
 export default function MapPage() {
     const { user, logout } = useUserAuth();
     const { isLoaded, loadError } = useGoogleMaps();
     const nav = useNavigate();
-    const [spawn, setSpawn] = useState(null);
-    const [nextSpawnAt, setNextSpawnAt] = useState(null);
+    const [spawns, setSpawns] = useState([]);
     const [enabled, setEnabled] = useState(true);
     const [pins, setPins] = useState([]);
     const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
@@ -66,7 +50,7 @@ export default function MapPage() {
     const [geoBlocked, setGeoBlocked] = useState(false);
     const mapRef = useRef(null);
     const pollRef = useRef(null);
-    const prevSpawnRef = useRef(null);
+    const seenSpawnIdsRef = useRef(new Set());
 
     // Onboarding: show once per camper per device
     const onboardingKey = user?.id ? `rrdc_onboarded_${user.id}` : null;
@@ -126,7 +110,8 @@ export default function MapPage() {
         }
     }, [myLocation, pins, claimPin]);
 
-    // Poll spawn — pass camper GPS when available so spawns appear near them
+    // Poll spawns — pass camper GPS when available so spawns appear near them.
+    // Backend returns a LIST of active spawns (4-6 at a time w/ mixed rarities).
     const myLocRef = useRef(null);
     useEffect(() => { myLocRef.current = myLocation; }, [myLocation]);
     const poll = React.useCallback(async () => {
@@ -138,16 +123,21 @@ export default function MapPage() {
             }
             const res = await userApi.get("/spawn/current", { params });
             setEnabled(res.data.enabled);
-            setNextSpawnAt(res.data.next_spawn_at);
-            const s = res.data.spawn;
-            const prevId = prevSpawnRef.current?.spawn_id;
-            setSpawn(s);
-            if (s && s.spawn_id !== prevId) {
-                prevSpawnRef.current = s;
-                toast.success(`A wild ${s.pokemon.name} appeared!`, { duration: 3500 });
-                if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
-            } else if (!s) {
-                prevSpawnRef.current = null;
+            const list = Array.isArray(res.data.spawns) ? res.data.spawns : [];
+            setSpawns(list);
+            // Toast for any newly-appeared spawn this session
+            const seen = seenSpawnIdsRef.current;
+            for (const s of list) {
+                if (!seen.has(s.spawn_id)) {
+                    seen.add(s.spawn_id);
+                    toast.success(`A wild ${s.pokemon.name} appeared!`, { duration: 3500 });
+                    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+                }
+            }
+            // Prune seen ids not present anymore so we re-announce if it respawns
+            const active = new Set(list.map((s) => s.spawn_id));
+            for (const id of Array.from(seen)) {
+                if (!active.has(id)) seen.delete(id);
             }
         } catch (e) {
             // silent
@@ -286,36 +276,46 @@ export default function MapPage() {
         );
     };
 
-    // Recenter when spawn arrives
-    useEffect(() => {
-        if (spawn?.latitude && spawn?.longitude && mapRef.current) {
-            mapRef.current.panTo({ lat: spawn.latitude, lng: spawn.longitude });
-        }
-    }, [spawn?.spawn_id, spawn?.latitude, spawn?.longitude]);
+    // Note: we no longer auto-recenter when a spawn arrives — the camper stays
+    // centered on themselves and walks toward the Pokemon like real Pokemon GO.
 
     const handleLogout = async () => {
         await logout();
         nav("/");
     };
 
-    const openCatch = () => {
-        if (!spawn) return;
+    // Pick the closest in-range spawn (within CATCH_RADIUS_METERS) for the
+    // bottom catch button. If none in range, use the closest one overall so
+    // the UI can show "X m away".
+    const rankedSpawns = React.useMemo(() => {
+        return spawns
+            .map((s) => {
+                const dist = (s.latitude != null && myLocation)
+                    ? metersBetween(myLocation, { lat: s.latitude, lng: s.longitude })
+                    : null;
+                return { ...s, _distance_m: dist };
+            })
+            .sort((a, b) => (a._distance_m ?? 1e9) - (b._distance_m ?? 1e9));
+    }, [spawns, myLocation]);
+
+    const activeSpawn = rankedSpawns[0] || null;
+    const activeInRange = activeSpawn && activeSpawn._distance_m != null && activeSpawn._distance_m <= CATCH_RADIUS_METERS;
+
+    const openCatchFor = (s) => {
+        if (!s) return;
         if (!myLocation) {
             toast.error("Need your location to catch Pokemon. Tap the location button to enable.");
             return;
         }
-        const dist = metersBetween(myLocation, { lat: spawn.latitude, lng: spawn.longitude });
+        const dist = metersBetween(myLocation, { lat: s.latitude, lng: s.longitude });
         if (isFinite(dist) && dist > CATCH_RADIUS_METERS) {
             toast.error(`Walk closer — you're ${Math.round(dist)} m away (need to be within ${CATCH_RADIUS_METERS} m)`);
             return;
         }
-        nav("/ar");
+        nav(`/ar?spawn=${encodeURIComponent(s.spawn_id)}`);
     };
 
-    const spawnDistance = spawn && spawn.latitude != null && myLocation
-        ? metersBetween(myLocation, { lat: spawn.latitude, lng: spawn.longitude })
-        : null;
-    const inRange = spawnDistance != null && spawnDistance <= CATCH_RADIUS_METERS;
+    const openCatch = () => openCatchFor(activeSpawn);
 
     const campCenter = myLocation || center;
 
@@ -374,42 +374,62 @@ export default function MapPage() {
                         />
                     ))}
 
-                    {spawn?.latitude != null && spawn?.longitude != null && (
-                        <OverlayView
-                            position={{ lat: spawn.latitude, lng: spawn.longitude }}
-                            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                        >
-                            <div
-                                onClick={openCatch}
-                                className="relative cursor-pointer select-none"
-                                style={{ transform: "translate(-50%, -100%)" }}
-                                data-testid="spawn-marker"
+                    {rankedSpawns.map((s) => {
+                        if (s.latitude == null || s.longitude == null) return null;
+                        const dist = s._distance_m;
+                        const inRange = dist != null && dist <= CATCH_RADIUS_METERS;
+                        const glow = rarityGlow[s.pokemon.rarity] || rarityGlow.common;
+                        return (
+                            <OverlayView
+                                key={s.spawn_id}
+                                position={{ lat: s.latitude, lng: s.longitude }}
+                                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
                             >
-                                <motion.div
-                                    animate={{ y: [0, -8, 0] }}
-                                    transition={{ repeat: Infinity, duration: 1.6 }}
-                                    className="relative"
+                                <div
+                                    onClick={() => openCatchFor(s)}
+                                    className="relative cursor-pointer select-none"
+                                    style={{ transform: "translate(-50%, -100%)" }}
+                                    data-testid="spawn-marker"
                                 >
-                                    <div
-                                        className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl border-4 border-white transition-all ${!inRange ? "grayscale opacity-60" : ""}`}
-                                        style={{ background: rarityColor[spawn.pokemon.rarity] || "#94A3B8" }}
+                                    <motion.div
+                                        animate={{ y: [0, -8, 0] }}
+                                        transition={{ repeat: Infinity, duration: 1.6 }}
+                                        className="relative w-24 h-24 flex items-center justify-center"
                                     >
-                                        {spawn.pokemon.image_data_url ? (
-                                            <img src={spawn.pokemon.image_data_url} alt="" className="w-[90%] h-[90%] object-contain" draggable={false} />
-                                        ) : (
-                                            <Sparkles className="w-8 h-8 text-white" />
+                                        {/* Soft radial glow behind the transparent PNG — no solid box, no white border */}
+                                        <div
+                                            className="absolute inset-0 rounded-full blur-2xl"
+                                            style={{ background: `radial-gradient(circle, ${glow} 0%, transparent 70%)` }}
+                                        />
+                                        {s.pokemon.rarity === "legendary" && (
+                                            <motion.div
+                                                className="absolute inset-0 rounded-full"
+                                                animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.8, 0.4] }}
+                                                transition={{ repeat: Infinity, duration: 1.8 }}
+                                                style={{ background: `radial-gradient(circle, ${glow} 0%, transparent 60%)`, filter: "blur(10px)" }}
+                                            />
                                         )}
-                                    </div>
-                                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent" style={{ borderTopColor: "white" }} />
-                                </motion.div>
-                                {!inRange && spawnDistance != null && (
-                                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap">
-                                        {Math.round(spawnDistance)} m away
-                                    </div>
-                                )}
-                            </div>
-                        </OverlayView>
-                    )}
+                                        {s.pokemon.image_data_url ? (
+                                            <img
+                                                src={s.pokemon.image_data_url}
+                                                alt=""
+                                                className={`relative w-full h-full object-contain transition-all ${!inRange ? "grayscale opacity-70" : ""}`}
+                                                style={{ filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.45))" }}
+                                                draggable={false}
+                                            />
+                                        ) : (
+                                            <Sparkles className="relative w-10 h-10 text-white" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.6))" }} />
+                                        )}
+                                    </motion.div>
+                                    {!inRange && dist != null && (
+                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap">
+                                            {Math.round(dist)} m
+                                        </div>
+                                    )}
+                                </div>
+                            </OverlayView>
+                        );
+                    })}
                 </GoogleMap>
             )}
 
@@ -462,44 +482,44 @@ export default function MapPage() {
 
             {/* Bottom hud */}
             <div className="absolute bottom-3 left-2 right-2 sm:bottom-4 sm:left-3 sm:right-3 flex items-end justify-between gap-2 z-10 safe-bottom">
-                <div className="glass-dark rounded-2xl px-4 py-3 max-w-[240px]" data-testid="hud-status">
-                    {spawn ? (
+                <div className="glass-dark rounded-2xl px-4 py-3 max-w-[260px]" data-testid="hud-status">
+                    {spawns.length > 0 ? (
                         <>
-                            <div className="text-[10px] uppercase tracking-widest opacity-70">Active</div>
-                            <div className="font-heading text-lg font-bold">{spawn.pokemon.name}</div>
-                            <div className="mt-1 flex items-center gap-2">
-                                <RarityBadge rarity={spawn.pokemon.rarity} className="text-[10px] px-2 py-0" />
-                                {spawn.pin_name && <span className="text-[11px] opacity-80 flex items-center gap-1"><MapPin className="w-3 h-3" /> {spawn.pin_name}</span>}
+                            <div className="text-[10px] uppercase tracking-widest opacity-70">Nearby ({spawns.length})</div>
+                            <div className="font-heading text-lg font-bold">
+                                {activeSpawn?.pokemon?.name}
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                {activeSpawn && <RarityBadge rarity={activeSpawn.pokemon.rarity} className="text-[10px] px-2 py-0" />}
+                                {activeSpawn?._distance_m != null && (
+                                    <span className="text-[11px] opacity-80">
+                                        {Math.round(activeSpawn._distance_m)} m
+                                    </span>
+                                )}
                             </div>
                         </>
                     ) : (
                         <>
-                            <div className="text-[10px] uppercase tracking-widest opacity-70">Next spawn</div>
+                            <div className="text-[10px] uppercase tracking-widest opacity-70">Spawns</div>
                             <div className="font-heading text-lg font-bold">
-                                {enabled ? <Countdown until={nextSpawnAt} /> : "Paused"}
+                                {enabled ? "Keep walking!" : "Paused"}
                             </div>
-                            <div className="text-[11px] opacity-70 mt-0.5">Keep walking around camp!</div>
+                            <div className="text-[11px] opacity-70 mt-0.5">Pokemon will appear nearby</div>
                         </>
                     )}
                 </div>
 
-                {spawn && (
+                {activeSpawn && (
                     <motion.button
                         onClick={openCatch}
                         whileTap={{ scale: 0.92 }}
-                        disabled={!inRange}
-                        className={`relative ${!inRange ? "opacity-60" : ""}`}
+                        disabled={!activeInRange}
+                        className={`relative ${!activeInRange ? "opacity-60" : ""}`}
                         data-testid="open-catch-btn"
                     >
-                        <motion.img
-                            src={RIVER_BALL}
-                            alt="Catch"
-                            className="w-24 h-24 drop-shadow-[0_8px_18px_rgba(0,0,0,0.6)]"
-                            animate={inRange ? { y: [0, -6, 0] } : {}}
-                            transition={{ repeat: Infinity, duration: 1.6 }}
-                        />
-                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap ${inRange ? "bg-amber-300 text-slate-900" : "bg-slate-700 text-white"}`}>
-                            {inRange ? "Tap to catch" : spawnDistance != null ? `${Math.round(spawnDistance)} m away` : "Walk closer"}
+                        <RiverBall size={96} animate={activeInRange} />
+                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap ${activeInRange ? "bg-amber-300 text-slate-900" : "bg-slate-700 text-white"}`}>
+                            {activeInRange ? "Tap to catch" : activeSpawn._distance_m != null ? `${Math.round(activeSpawn._distance_m)} m away` : "Walk closer"}
                         </div>
                     </motion.button>
                 )}

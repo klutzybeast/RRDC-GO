@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 4 (multi-spawn, kid-friendly catch rates, no-flee-on-miss, camera toggle, no timer) verified. Backend pytest 15/15 pass. /api/spawn/current returns SpawnPollResponse{spawns:[], max_active_spawns, next_spawn_at} with NO 'current_spawn' field; with lat/lng passed it fills up to 5 spawns jittered around the camper (verified len==5). /api/spawn/catch removes only the targeted spawn on success; on MISS the spawn STAYS in current_spawns (no flee). /api/spawn/flee {spawn_id} removes only that one. load_spawn_config auto-bumps spawn_ttl_seconds<1800 to 3600 (injected 600 via Mongo, GET /admin/spawn-config returned 3600 and persisted). Statistical catch rates: common 95% (120 trials within ±8%), legendary 25% (120 trials within ±12%). Admin smoke (auth/me, pokemon list, analytics, roster, map-pins) all 200. Wallet (GET, claim-daily) still 200/429. Frontend: Mocked navigator.geolocation to Camp coords (40.6396,-73.6665), logged in as B01/first camper. MapPage renders 5 spawn-markers simultaneously; spawn-marker descendants have ZERO opaque backgrounds (only rarityGlow radial gradient). open-catch-btn pokeball uses pure SVG (RiverBall.jsx) with transparent container — only amber-300 opaque element is the separate 'Tap to catch' pill label, which is intended UI, NOT a background behind the ball. ARPage at /ar?spawn=<id>: data-testid='ar-page' loaded, toggle-camera-btn present and clickable, ar-fallback-bg visible (gradient) when camera off, skip-camera-btn appears when denied, NO timer/countdown text anywhere on the AR page. After throwing the ball on a legendary miss, URL STAYS on /ar?spawn=<id> (does NOT navigate to /map). Navigating back to /map after AR still shows 5 spawn-markers (other spawns remain active). PokemonOverlay shows image on checker-transparent background — no solid color/white frame around the Pokemon.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/test_reports/pytest/iteration4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "maybe_create_spawn caps creation at 3 per call even if max_active_spawns=5 and all slots are empty — a first-time camper will see only 3 spawns on initial /spawn/current; the 4th/5th need subsequent polls and min_interval_min to elapse. Works fine in practice (poll is every ~6s) but worth noting for UX expectations (e.g., if min_interval_min is set high via admin, campers may wait too long for full 5-spawn experience).",
+    "spawn_catch sets next_spawn_at to now+random(min_interval_min, max_interval_min) AFTER a successful catch, which defers the replacement spawn. This is intended. Good.",
+    "CATCH_RATES are hardcoded constants — if product wants per-pokemon override later, extend pokemon doc with optional 'catch_rate_override'.",
+    "Frontend ARPage has a 4000ms safety timeout that redirects to /map if no spawn is found — ensure this does NOT fire during legitimate catches; since setSpawn(null) is used after a successful catch, the redirect does trigger after the CatchResult modal closes. Current flow: CatchResult onClose calls nav('/map'), but the 4s safety could nav earlier if result state races. Low risk but observable.",
+    "server.py is 1847 lines — consider splitting into routers/{auth,spawn,admin,wallet,camper}.py for maintainability. Currently a single monolithic file."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4.py (created)"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (all listed flows pass)"},
+  "test_credentials": "Admin: admin / Camp1993. Camper: B01 → any Play button (first was Colton Ahern).",
+  "seed_data_creation": "Tests directly poke Mongo to: (1) activate at least one pokemon per rarity, (2) seed group_spawns.current_spawns with TEST4_ prefixed spawn_ids for deterministic miss/hit assertions, (3) inject low spawn_ttl_seconds=600 for TTL migration test, (4) set wallet.balance=500-10000 for the statistical throws. teardown_module strips all TEST4_ spawn_ids from group_spawns.current_spawns. Does NOT deactivate pokemon.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Canonical iteration 4 regression suite: /app/backend/tests/test_iteration4.py (15 tests, ~100s runtime — 120 attempts per rarity stats). Key testids verified: spawn-marker, open-catch-btn, river-ball, ar-page, ar-fallback-bg, toggle-camera-btn, skip-camera-btn, retry-camera-btn, active-spawn-name, miss-flash, back-to-map-btn, camper-row-<id>, play-camper-<id>. IMPORTANT: Frontend geolocation is BLOCKED in iframe preview — MUST add_init_script to override navigator.geolocation before any navigation. API calls from python urllib/requests sometimes 403 from the ingress — use page.request from inside Playwright browser context when injecting tokens and calling /api. On headless Chromium, camera is DENIED by default which naturally shows the 'Camera Unavailable' prompt with retry-camera-btn and skip-camera-btn; to verify toggle-camera-btn you must be ON the AR page with a live spawn. To seed a spawn deterministically from the test: POST /api/spawn/current with lat/lng query params as a camper (pick first camper from /api/groups/B01/campers).",
+  "rca of the issue": "N/A — all features implemented correctly."
+}

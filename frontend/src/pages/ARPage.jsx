@@ -1,23 +1,23 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue } from "framer-motion";
 import { userApi, formatApiError } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import CatchSuccessModal from "../components/CatchSuccessModal";
 import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
+import RiverBall from "../components/RiverBall";
 import { toast } from "sonner";
-import { Camera, LogOut, BackpackIcon, X } from "lucide-react";
+import { Camera, CameraOff, LogOut, BackpackIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
 import { useWallet } from "../hooks/useWallet";
 
-const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
-
-function useCamera(videoRef) {
-    const [status, setStatus] = useState("idle"); // idle | running | denied | error | unavailable
+function useCamera(videoRef, enabled) {
+    const [status, setStatus] = useState("idle"); // idle | running | denied | error | unavailable | off
     const [err, setErr] = useState("");
+    const streamRef = useRef(null);
 
     const start = useCallback(async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -30,6 +30,7 @@ function useCamera(videoRef) {
                 video: { facingMode: { ideal: "environment" } },
                 audio: false,
             });
+            streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 await videoRef.current.play().catch(() => {});
@@ -42,65 +43,60 @@ function useCamera(videoRef) {
     }, [videoRef]);
 
     const stop = useCallback(() => {
-        const stream = videoRef.current?.srcObject;
+        const stream = streamRef.current || videoRef.current?.srcObject;
         if (stream) stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
         if (videoRef.current) videoRef.current.srcObject = null;
+        setStatus("off");
     }, [videoRef]);
 
-    return { status, err, start, stop };
-}
-
-function Countdown({ until }) {
-    const [, setTick] = useState(0);
     useEffect(() => {
-        const id = setInterval(() => setTick((x) => x + 1), 1000);
-        return () => clearInterval(id);
-    }, []);
-    if (!until) return null;
-    const ms = new Date(until).getTime() - Date.now();
-    if (ms <= 0) return <span>now</span>;
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.floor((ms % 60000) / 1000);
-    return <span>{mins > 0 ? `${mins}m ` : ""}{secs}s</span>;
+        if (enabled) start();
+        else stop();
+        return () => {
+            const s = streamRef.current;
+            if (s) s.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled]);
+
+    return { status, err, start, stop };
 }
 
 export default function ARPage() {
     const { user, logout } = useUserAuth();
     const nav = useNavigate();
+    const [params] = useSearchParams();
+    const targetSpawnId = params.get("spawn");
+
     const videoRef = useRef(null);
-    const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef);
+    const [cameraOn, setCameraOn] = useState(true);
+    const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef, cameraOn);
 
     const [spawn, setSpawn] = useState(null);
-    const [nextSpawnAt, setNextSpawnAt] = useState(null);
-    const [enabled, setEnabled] = useState(true);
+    const [missCount, setMissCount] = useState(0);
     const [throwing, setThrowing] = useState(false);
     const [result, setResult] = useState(null);
     const [showBallAnim, setShowBallAnim] = useState(false);
-    const [flash, setFlash] = useState(""); // "miss"
+    const [flash, setFlash] = useState("");
     const pollRef = useRef(null);
-    const prevSpawnRef = useRef(null);
+    const announcedRef = useRef(false);
 
     // Wallet
     const { wallet, refresh: refreshWallet, claimDaily } = useWallet(true);
     const [showOutOfBalls, setShowOutOfBalls] = useState(false);
 
-    useEffect(() => {
-        startCam();
-        return () => stopCam();
-    }, [startCam, stopCam]);
-
     const poll = useCallback(async () => {
         try {
             const res = await userApi.get("/spawn/current");
-            setEnabled(res.data.enabled);
-            setNextSpawnAt(res.data.next_spawn_at);
-            const newSpawn = res.data.spawn;
-            const prevId = prevSpawnRef.current?.spawn_id;
-            setSpawn(newSpawn);
-            if (newSpawn && newSpawn.spawn_id !== prevId) {
-                prevSpawnRef.current = newSpawn;
-                // New spawn notification
-                toast.success(`A wild ${newSpawn.pokemon.name} appeared!`, { duration: 4000 });
+            const list = Array.isArray(res.data.spawns) ? res.data.spawns : [];
+            // Pick the targeted spawn if present; else first in list
+            const match = targetSpawnId ? list.find((s) => s.spawn_id === targetSpawnId) : list[0];
+            setSpawn(match || null);
+            if (match && !announcedRef.current) {
+                announcedRef.current = true;
+                toast.success(`A wild ${match.pokemon.name} appeared!`, { duration: 3500 });
                 if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -113,25 +109,23 @@ export default function ARPage() {
                     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
                     o.start(); o.stop(ctx.currentTime + 0.6);
                 } catch {}
-            } else if (!newSpawn) {
-                prevSpawnRef.current = null;
             }
-        } catch (e) {
+        } catch {
             // silent
         }
-    }, []);
+    }, [targetSpawnId]);
 
     useEffect(() => {
         poll();
-        pollRef.current = setInterval(poll, 4000);
+        pollRef.current = setInterval(poll, 6000);
         return () => clearInterval(pollRef.current);
     }, [poll]);
 
-    // If no spawn exists on mount, redirect back to map
+    // If no spawn exists after a few seconds, redirect back to map
     useEffect(() => {
         const t = setTimeout(() => {
             if (!spawn && !result) nav("/map");
-        }, 3000);
+        }, 4000);
         return () => clearTimeout(t);
     }, [spawn, result, nav]);
 
@@ -143,27 +137,26 @@ export default function ARPage() {
         }
         setThrowing(true);
         setShowBallAnim(true);
-        await new Promise((r) => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, 650));
         try {
             const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id });
             refreshWallet();
             if (res.data.success) {
                 setResult(res.data);
                 setSpawn(null);
-                prevSpawnRef.current = null;
             } else {
-                setFlash(res.data.message || "Got away!");
-                setTimeout(() => {
-                    setFlash("");
-                    nav("/map");
-                }, 1800);
-                setSpawn(null);
-                prevSpawnRef.current = null;
+                // Pokemon did NOT flee — it dodged. Let the camper try again.
+                setMissCount((n) => n + 1);
+                setFlash(res.data.message || "Dodged!");
+                setTimeout(() => setFlash(""), 1200);
             }
         } catch (e) {
             const msg = formatApiError(e);
             if (msg?.toLowerCase?.().includes("out of")) {
                 setShowOutOfBalls(true);
+            } else if (msg?.toLowerCase?.().includes("mismatch") || msg?.toLowerCase?.().includes("expired")) {
+                toast.error(msg);
+                nav("/map");
             } else {
                 toast.error(msg);
             }
@@ -177,15 +170,11 @@ export default function ARPage() {
     const ballY = useMotionValue(0);
 
     const onDragEnd = (_, info) => {
-        if (info.offset.y < -60 && spawn && !throwing) {
-            throwBall();
-        }
+        if (info.offset.y < -60 && spawn && !throwing) throwBall();
     };
 
-    const handleFlee = async () => {
-        try { await userApi.post("/spawn/flee"); } catch {}
-        setSpawn(null);
-        prevSpawnRef.current = null;
+    const handleBack = () => {
+        // Navigate away — the spawn stays active on the map.
         nav("/map");
     };
 
@@ -195,12 +184,27 @@ export default function ARPage() {
         nav("/");
     };
 
+    const toggleCamera = () => setCameraOn((v) => !v);
+
     return (
         <div className="ar-layer" data-testid="ar-page">
+            {/* Camera feed */}
             <video ref={videoRef} className="ar-video" playsInline muted autoPlay />
 
+            {/* Fallback background when camera is off / denied */}
             {camStatus !== "running" && (
-                <div className="absolute inset-0 z-[5] flex items-center justify-center p-6 bg-black/80 text-white text-center">
+                <div
+                    className="absolute inset-0 z-[1]"
+                    style={{
+                        background: "radial-gradient(circle at 30% 20%, #0ea5a1 0%, #0b2545 55%, #050b1f 100%)",
+                    }}
+                    data-testid="ar-fallback-bg"
+                />
+            )}
+
+            {/* Camera permission / unavailable prompt — only when the user WANTS camera on */}
+            {cameraOn && (camStatus === "denied" || camStatus === "error" || camStatus === "unavailable") && (
+                <div className="absolute inset-0 z-[5] flex items-center justify-center p-6 bg-black/70 text-white text-center">
                     <div className="max-w-sm">
                         <Camera className="w-12 h-12 mx-auto mb-4 text-river-400" />
                         <h2 className="font-heading text-2xl font-bold mb-2">Camera Needed</h2>
@@ -211,9 +215,14 @@ export default function ARPage() {
                                 ? "Your browser doesn't support camera access."
                                 : camErr || "Requesting camera…"}
                         </p>
-                        <Button onClick={startCam} className="tactile-btn bg-river-500 hover:bg-river-600 text-white rounded-2xl" data-testid="retry-camera-btn">
-                            Try Again
-                        </Button>
+                        <div className="flex gap-2 justify-center">
+                            <Button onClick={startCam} className="tactile-btn bg-river-500 hover:bg-river-600 text-white rounded-2xl" data-testid="retry-camera-btn">
+                                Try Again
+                            </Button>
+                            <Button onClick={() => setCameraOn(false)} variant="outline" className="rounded-2xl bg-white/10 border-white/30 text-white hover:bg-white/20" data-testid="skip-camera-btn">
+                                Skip Camera
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -225,7 +234,7 @@ export default function ARPage() {
                 {/* Top bar */}
                 <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2">
                     <button
-                        onClick={() => nav("/map")}
+                        onClick={handleBack}
                         className="glass-dark rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2"
                         data-testid="back-to-map-btn"
                     >
@@ -233,6 +242,15 @@ export default function ARPage() {
                     </button>
                     <div className="flex gap-2 items-center">
                         <BallCounter balance={wallet?.balance} onClick={() => setShowOutOfBalls(true)} />
+                        <button
+                            onClick={toggleCamera}
+                            className="glass-dark rounded-full p-2"
+                            data-testid="toggle-camera-btn"
+                            aria-label={cameraOn ? "Turn camera off" : "Turn camera on"}
+                            title={cameraOn ? "Turn camera off" : "Turn camera on"}
+                        >
+                            {cameraOn ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
+                        </button>
                         <button
                             onClick={() => nav("/collection")}
                             className="glass-dark rounded-full px-3 py-2 text-sm font-bold flex items-center gap-2"
@@ -262,13 +280,9 @@ export default function ARPage() {
                         <div className="font-heading text-2xl font-bold" data-testid="active-spawn-name">{spawn.pokemon.name}</div>
                         <div className="mt-1 flex items-center justify-center gap-2">
                             <RarityBadge rarity={spawn.pokemon.rarity} />
-                            <button
-                                onClick={handleFlee}
-                                className="text-xs opacity-80 hover:opacity-100 underline"
-                                data-testid="flee-btn"
-                            >
-                                Flee
-                            </button>
+                            {missCount > 0 && (
+                                <span className="text-xs opacity-75">misses: {missCount}</span>
+                            )}
                         </div>
                     </motion.div>
                 )}
@@ -277,16 +291,8 @@ export default function ARPage() {
                 <div className="absolute bottom-6 left-0 right-0 flex items-center justify-center select-none">
                     {!spawn && (
                         <div className="glass-dark rounded-2xl px-5 py-3 text-center max-w-xs" data-testid="waiting-panel">
-                            <div className="font-heading text-lg font-bold">
-                                {enabled ? "Keep hunting!" : "Spawns paused"}
-                            </div>
-                            <div className="text-xs opacity-80 mt-1">
-                                {enabled ? (
-                                    <>Next spawn in <Countdown until={nextSpawnAt} /></>
-                                ) : (
-                                    "The director has paused the game"
-                                )}
-                            </div>
+                            <div className="font-heading text-lg font-bold">Returning to map…</div>
+                            <div className="text-xs opacity-80 mt-1">Walk around camp to find more Pokemon</div>
                         </div>
                     )}
                     {spawn && (
@@ -301,16 +307,7 @@ export default function ARPage() {
                             style={{ y: ballY }}
                             data-testid="river-ball"
                         >
-                            {!showBallAnim && (
-                                <motion.img
-                                    src={RIVER_BALL}
-                                    alt="Rolling River Ball"
-                                    className="w-28 h-28 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] cursor-pointer"
-                                    animate={{ y: [0, -6, 0] }}
-                                    transition={{ repeat: Infinity, duration: 2 }}
-                                    draggable={false}
-                                />
-                            )}
+                            {!showBallAnim && <RiverBall size={112} animate />}
                             <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-white text-xs font-bold uppercase tracking-widest opacity-90 whitespace-nowrap">
                                 Tap or swipe up
                             </div>
@@ -321,16 +318,16 @@ export default function ARPage() {
                 {/* Ball throw animation */}
                 <AnimatePresence>
                     {showBallAnim && (
-                        <motion.img
-                            src={RIVER_BALL}
-                            alt=""
-                            className="absolute w-24 h-24 pointer-events-none"
-                            style={{ left: "calc(50% - 3rem)", bottom: "6rem" }}
+                        <motion.div
+                            className="absolute pointer-events-none"
+                            style={{ left: "calc(50% - 48px)", bottom: "6rem" }}
                             initial={{ y: 0, scale: 1, opacity: 1, rotate: 0 }}
-                            animate={{ y: -400, scale: 0.2, opacity: 1, rotate: 720 }}
+                            animate={{ y: -400, scale: 0.25, opacity: 1, rotate: 720 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.7, ease: "easeOut" }}
-                        />
+                        >
+                            <RiverBall size={96} animate={false} />
+                        </motion.div>
                     )}
                 </AnimatePresence>
 

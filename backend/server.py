@@ -21,7 +21,7 @@ from io import BytesIO
 from PIL import Image
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, Form, Body
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -55,8 +55,11 @@ logging.basicConfig(level=logging.INFO)
 # Models
 # ----------------------
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
-CATCH_RATES = {"common": 0.90, "uncommon": 0.70, "rare": 0.40, "legendary": 0.15}
-DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 25, "rare": 15, "legendary": 5}
+# Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
+# (they stay around so the camper can keep throwing until they catch).
+CATCH_RATES = {"common": 0.95, "uncommon": 0.80, "rare": 0.55, "legendary": 0.25}
+# ~1-in-20 legendary spawns. Common/uncommon dominate.
+DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
 
 class LoginRequest(BaseModel):
@@ -120,7 +123,7 @@ class SpawnConfig(BaseModel):
     max_interval_min: float = 1.5
     active_hours_start: int = 9  # 24h
     active_hours_end: int = 15
-    spawn_ttl_seconds: int = 600
+    spawn_ttl_seconds: int = 3600  # 1h — effectively no timer during play
     max_active_spawns: int = 5
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     camp_latitude: float = 40.6396
@@ -489,6 +492,15 @@ async def load_spawn_config() -> dict:
         cfg = SpawnConfig().model_dump()
         cfg["id"] = "singleton"
         await db.spawn_config.insert_one(cfg)
+        return cfg
+    # Migration: old deployments had a short 600s TTL that caused Pokemon to
+    # "time out" mid-catch. Bump to 1h so catching is not time-gated.
+    if int(cfg.get("spawn_ttl_seconds", 0)) < 1800:
+        cfg["spawn_ttl_seconds"] = 3600
+        await db.spawn_config.update_one(
+            {"id": "singleton"},
+            {"$set": {"spawn_ttl_seconds": 3600}},
+        )
     return cfg
 
 
@@ -937,20 +949,28 @@ async def spawn_current(
 ):
     cfg = await load_spawn_config()
     state = await maybe_create_spawn(user["id"], cfg, camper_lat=lat, camper_lng=lng)
-    resp = SpawnPollResponse(enabled=bool(cfg.get("enabled", True)))
-    cur = state.get("current_spawn")
-    if cur:
-        resp.spawn = CurrentSpawn(
-            spawn_id=cur["spawn_id"],
-            pokemon=pokemon_to_out(cur["pokemon"]),
-            started_at=datetime.fromisoformat(cur["started_at"]),
-            expires_at=datetime.fromisoformat(cur["expires_at"]),
-            latitude=cur.get("latitude"),
-            longitude=cur.get("longitude"),
-            pin_name=cur.get("pin_name"),
-        )
+    resp = SpawnPollResponse(
+        enabled=bool(cfg.get("enabled", True)),
+        max_active_spawns=int(cfg.get("max_active_spawns", 5)),
+    )
+    for cur in (state.get("current_spawns") or []):
+        try:
+            resp.spawns.append(CurrentSpawn(
+                spawn_id=cur["spawn_id"],
+                pokemon=pokemon_to_out(cur["pokemon"]),
+                started_at=datetime.fromisoformat(cur["started_at"]),
+                expires_at=datetime.fromisoformat(cur["expires_at"]),
+                latitude=cur.get("latitude"),
+                longitude=cur.get("longitude"),
+                pin_name=cur.get("pin_name"),
+            ))
+        except Exception:
+            continue
     if state.get("next_spawn_at"):
-        resp.next_spawn_at = datetime.fromisoformat(state["next_spawn_at"])
+        try:
+            resp.next_spawn_at = datetime.fromisoformat(state["next_spawn_at"])
+        except Exception:
+            pass
     return resp
 
 
@@ -958,13 +978,23 @@ async def spawn_current(
 async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     cfg = await load_spawn_config()
     state = await db.group_spawns.find_one({"group_id": user["id"]}, {"_id": 0})
-    if not state or not state.get("current_spawn"):
+    if not state:
         raise HTTPException(400, "No active spawn")
-    cur = state["current_spawn"]
-    if cur["spawn_id"] != req.spawn_id:
+
+    # Normalize: support both new list schema and legacy singleton schema
+    spawns = state.get("current_spawns")
+    if spawns is None:
+        legacy = state.get("current_spawn")
+        spawns = [legacy] if legacy else []
+
+    cur = next((s for s in spawns if s and s.get("spawn_id") == req.spawn_id), None)
+    if not cur:
         raise HTTPException(400, "Spawn mismatch (already caught or expired)")
-    if datetime.fromisoformat(cur["expires_at"]) <= now_utc():
-        raise HTTPException(400, "Spawn expired")
+    try:
+        if datetime.fromisoformat(cur["expires_at"]) <= now_utc():
+            raise HTTPException(400, "Spawn expired")
+    except (KeyError, ValueError):
+        pass
 
     # Require at least one ball to throw
     wallet = await get_or_init_wallet(user["id"])
@@ -979,16 +1009,14 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     # Deduct one ball for the throw
     wallet = await adjust_balls(user["id"], -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
 
-    # Pick next spawn time
-    gap_min = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
-    next_at = (now_utc() + timedelta(minutes=gap_min)).isoformat()
-
     if not success:
-        await db.group_spawns.update_one(
-            {"group_id": user["id"]},
-            {"$set": {"current_spawn": None, "next_spawn_at": next_at}},
+        # IMPORTANT: Pokemon does NOT flee on a miss. It stays around so the
+        # camper can keep throwing until they catch it (within their ball budget).
+        return CatchResult(
+            success=False,
+            message=f"{pokemon['name']} dodged! Try again.",
+            power_rolled=wallet["balance"],
         )
-        return CatchResult(success=False, message=f"{pokemon['name']} got away!", power_rolled=wallet["balance"])
 
     # Catch rewards
     reward = CATCH_REWARD.get(rarity, 0)
@@ -1013,9 +1041,19 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         "caught_at": caught_at,
     }
     await db.catches.insert_one(catch_doc)
+
+    # Remove ONLY the caught spawn from the list; keep the rest active.
+    remaining = [s for s in spawns if s and s.get("spawn_id") != cur["spawn_id"]]
+    # Pick next spawn time for the replacement to spawn back in
+    gap_min = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
+    next_at = (now_utc() + timedelta(minutes=gap_min)).isoformat()
     await db.group_spawns.update_one(
         {"group_id": user["id"]},
-        {"$set": {"current_spawn": None, "next_spawn_at": next_at}},
+        {"$set": {
+            "current_spawns": remaining,
+            "current_spawn": None,
+            "next_spawn_at": next_at,
+        }},
     )
     return CatchResult(
         success=True,
@@ -1028,13 +1066,29 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
 
 
 @api.post("/spawn/flee")
-async def spawn_flee(user=Depends(get_current_user)):
+async def spawn_flee(
+    user=Depends(get_current_user),
+    req: Optional[CatchAttemptReq] = Body(None),
+):
+    """Explicit flee — remove a specific spawn from the active list (or all if none specified)."""
+    state = await db.group_spawns.find_one({"group_id": user["id"]}, {"_id": 0})
+    if not state:
+        return {"ok": True}
+    spawns = state.get("current_spawns")
+    if spawns is None:
+        legacy = state.get("current_spawn")
+        spawns = [legacy] if legacy else []
+    spawn_id = req.spawn_id if req else None
+    if spawn_id:
+        remaining = [s for s in spawns if s and s.get("spawn_id") != spawn_id]
+    else:
+        remaining = []
     cfg = await load_spawn_config()
     gap_min = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
     next_at = (now_utc() + timedelta(minutes=gap_min)).isoformat()
     await db.group_spawns.update_one(
         {"group_id": user["id"]},
-        {"$set": {"current_spawn": None, "next_spawn_at": next_at}},
+        {"$set": {"current_spawns": remaining, "current_spawn": None, "next_spawn_at": next_at}},
         upsert=True,
     )
     return {"ok": True}
