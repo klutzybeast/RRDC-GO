@@ -1442,40 +1442,76 @@ async def _generate_pokemon_image(prompt: str) -> Optional[str]:
         return f"data:{mime};base64,{b64}"
 
 
-def _remove_white_background(png_bytes: bytes, threshold: int = 235) -> bytes:
-    """Flood-fill from the 4 corners to make the outer white area transparent.
-    Leaves interior whites (highlights, eyes) intact."""
+def _remove_white_background(png_bytes: bytes, _threshold_unused: int = 0) -> bytes:
+    """Detect the background color from the 4 corners and flood-fill it to
+    transparent. Works with white, dark, or any mostly-uniform background.
+    Interior colors similar to the background are preserved because we only
+    remove pixels reachable from the corners."""
     img = Image.open(BytesIO(png_bytes)).convert("RGBA")
     w, h = img.size
     px = img.load()
-    # BFS flood fill from each corner, marking reachable near-white pixels
+
+    # Sample the 4 corners and the 4 edge-midpoints → median color = bg
+    sample_points = [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+        (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2),
+    ]
+    samples = [px[x, y][:3] for x, y in sample_points]
+    # If corners disagree wildly (std dev high), assume image is already transparent-ish → skip
+    avg = tuple(sum(c[i] for c in samples) // len(samples) for i in range(3))
+    max_spread = max(max(abs(c[i] - avg[i]) for c in samples) for i in range(3))
+    if max_spread > 80:
+        # Corners are very different → no uniform background to remove
+        out = BytesIO()
+        img.save(out, format="PNG", optimize=True)
+        return out.getvalue()
+
+    base_r, base_g, base_b = avg
+    # Tolerance controls how strictly we match the bg color (higher = more aggressive)
+    HARD = 24   # fully transparent within this color distance
+    SOFT = 48   # feather edges up to this distance
+
+    def color_dist(r, g, b):
+        dr, dg, db = r - base_r, g - base_g, b - base_b
+        return (dr * dr + dg * dg + db * db) ** 0.5
+
     from collections import deque
     visited = [[False] * h for _ in range(w)]
     q = deque()
-    for cx, cy in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
-        r, g, b, a = px[cx, cy]
-        if r >= threshold and g >= threshold and b >= threshold:
-            q.append((cx, cy))
-            visited[cx][cy] = True
+    # Seed from all 4 edges, not just corners — more robust
+    for x in range(w):
+        for y in (0, h - 1):
+            if not visited[x][y]:
+                r, g, b, _ = px[x, y]
+                if color_dist(r, g, b) <= SOFT:
+                    visited[x][y] = True
+                    q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if not visited[x][y]:
+                r, g, b, _ = px[x, y]
+                if color_dist(r, g, b) <= SOFT:
+                    visited[x][y] = True
+                    q.append((x, y))
+
     while q:
         x, y = q.popleft()
         r, g, b, _a = px[x, y]
-        # Soft alpha based on how close to pure white (anti-aliased edge)
-        mn = min(r, g, b)
-        if mn >= 250:
+        d = color_dist(r, g, b)
+        if d <= HARD:
             alpha = 0
-        elif mn >= threshold:
-            # fade out linearly from 235→250
-            alpha = int(255 * (250 - mn) / 15)
+        elif d <= SOFT:
+            alpha = int(255 * (d - HARD) / (SOFT - HARD))
         else:
             continue
         px[x, y] = (r, g, b, alpha)
         for nx, ny in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]:
             if 0 <= nx < w and 0 <= ny < h and not visited[nx][ny]:
                 nr, ng, nb, _na = px[nx, ny]
-                if min(nr, ng, nb) >= threshold:
+                if color_dist(nr, ng, nb) <= SOFT:
                     visited[nx][ny] = True
                     q.append((nx, ny))
+
     out = BytesIO()
     img.save(out, format="PNG", optimize=True)
     return out.getvalue()

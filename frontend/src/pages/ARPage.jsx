@@ -9,6 +9,9 @@ import RarityBadge from "../components/RarityBadge";
 import { toast } from "sonner";
 import { Camera, LogOut, BackpackIcon, X } from "lucide-react";
 import { Button } from "../components/ui/button";
+import BallCounter from "../components/BallCounter";
+import OutOfBallsModal from "../components/OutOfBallsModal";
+import { useWallet } from "../hooks/useWallet";
 
 const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
 
