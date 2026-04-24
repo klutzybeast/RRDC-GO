@@ -1666,7 +1666,7 @@ async def _generate_pokemon_image(prompt: str) -> Optional[str]:
     if not api_key:
         logger.error("EMERGENT_LLM_KEY missing")
         return None
-    chat = (LlmChat(api_key=api_key, session_id=f"pokemon-{uuid.uuid4()}", system_message="You generate cute cartoon Pokemon-style creature images with clean white backgrounds that can be keyed out.")
+    chat = (LlmChat(api_key=api_key, session_id=f"pokemon-{uuid.uuid4()}", system_message="You generate cute cartoon Pokemon-style creature images on a solid pure-white background (never a checker/transparency-indicator pattern). The white background will be keyed out to transparency, so the creature must have strong saturated colors that clearly differ from white.")
             .with_model("gemini", "gemini-3.1-flash-image-preview")
             .with_params(modalities=["image", "text"]))
     try:
@@ -1691,77 +1691,93 @@ async def _generate_pokemon_image(prompt: str) -> Optional[str]:
 
 
 def _remove_white_background(png_bytes: bytes, _threshold_unused: int = 0) -> bytes:
-    """Detect the background color from the 4 corners and flood-fill it to
-    transparent. Works with white, dark, or any mostly-uniform background.
-    Interior colors similar to the background are preserved because we only
-    remove pixels reachable from the corners."""
+    """Strip ALL background colors (including baked-in checker patterns that
+    represent "transparency" in generated images) from a PNG.
+
+    Strategy:
+      1. Detect up to 4 dominant edge colors from a wide border strip.
+      2. If they're all low-saturation (grays/whites → classic checker), treat
+         each as a background color and remove pixels matching ANY of them
+         across the whole image (not just flood-fill from edges).
+      3. Protect colorful (high-saturation) pixels so we never eat the
+         Pokemon's actual body.
+      4. Feather edges with a soft ramp for a clean alpha cut.
+    """
+    import numpy as np
+    from collections import Counter
+
     img = Image.open(BytesIO(png_bytes)).convert("RGBA")
     w, h = img.size
-    px = img.load()
+    arr = np.array(img)
+    rgb = arr[..., :3].astype(np.int16)
+    existing_alpha = arr[..., 3].astype(np.int16)
 
-    # Sample the 4 corners and the 4 edge-midpoints → median color = bg
-    sample_points = [
-        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
-        (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2),
-    ]
-    samples = [px[x, y][:3] for x, y in sample_points]
-    # If corners disagree wildly (std dev high), assume image is already transparent-ish → skip
-    avg = tuple(sum(c[i] for c in samples) // len(samples) for i in range(3))
-    max_spread = max(max(abs(c[i] - avg[i]) for c in samples) for i in range(3))
-    if max_spread > 80:
-        # Corners are very different → no uniform background to remove
-        out = BytesIO()
-        img.save(out, format="PNG", optimize=True)
-        return out.getvalue()
+    # --- 1. Sample a wide border to find background colors ---
+    border_w = max(6, min(w, h) // 20)
+    border_pixels = np.concatenate([
+        rgb[:border_w, :, :].reshape(-1, 3),
+        rgb[-border_w:, :, :].reshape(-1, 3),
+        rgb[:, :border_w, :].reshape(-1, 3),
+        rgb[:, -border_w:, :].reshape(-1, 3),
+    ])
+    # Quantize to 16-step grid for clustering
+    quant = (border_pixels // 16) * 16
+    ctr = Counter(map(tuple, map(tuple, quant.tolist())))
+    top = [tuple(int(v) for v in c) for c, _n in ctr.most_common(6)]
 
-    base_r, base_g, base_b = avg
-    # Tolerance controls how strictly we match the bg color (higher = more aggressive)
-    HARD = 24   # fully transparent within this color distance
-    SOFT = 48   # feather edges up to this distance
+    def is_desaturated(c, thresh=28):
+        return max(c) - min(c) <= thresh
 
-    def color_dist(r, g, b):
-        dr, dg, db = r - base_r, g - base_g, b - base_b
-        return (dr * dr + dg * dg + db * db) ** 0.5
+    desat_top = [c for c in top if is_desaturated(c)]
+    if len(desat_top) >= 2:
+        # Likely a checker pattern (2+ gray tones dominate the border)
+        bg_colors = desat_top[:4]
+    elif desat_top:
+        bg_colors = desat_top[:2]
+    else:
+        # Fall back to the single most-common edge color (solid bg)
+        bg_colors = [top[0]] if top else [(255, 255, 255)]
 
-    from collections import deque
-    visited = [[False] * h for _ in range(w)]
-    q = deque()
-    # Seed from all 4 edges, not just corners — more robust
-    for x in range(w):
-        for y in (0, h - 1):
-            if not visited[x][y]:
-                r, g, b, _ = px[x, y]
-                if color_dist(r, g, b) <= SOFT:
-                    visited[x][y] = True
-                    q.append((x, y))
-    for y in range(h):
-        for x in (0, w - 1):
-            if not visited[x][y]:
-                r, g, b, _ = px[x, y]
-                if color_dist(r, g, b) <= SOFT:
-                    visited[x][y] = True
-                    q.append((x, y))
+    # --- 2. Build alpha mask across the WHOLE image ---
+    HARD = 28   # fully transparent within this color distance
+    SOFT = 56   # feather up to this distance
 
-    while q:
-        x, y = q.popleft()
-        r, g, b, _a = px[x, y]
-        d = color_dist(r, g, b)
-        if d <= HARD:
-            alpha = 0
-        elif d <= SOFT:
-            alpha = int(255 * (d - HARD) / (SOFT - HARD))
-        else:
-            continue
-        px[x, y] = (r, g, b, alpha)
-        for nx, ny in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]:
-            if 0 <= nx < w and 0 <= ny < h and not visited[nx][ny]:
-                nr, ng, nb, _na = px[nx, ny]
-                if color_dist(nr, ng, nb) <= SOFT:
-                    visited[nx][ny] = True
-                    q.append((nx, ny))
+    mask_alpha = np.full((h, w), 255, dtype=np.float32)
+    rgbf = rgb.astype(np.float32)
+    for bc in bg_colors:
+        dr = rgbf[..., 0] - bc[0]
+        dg = rgbf[..., 1] - bc[1]
+        db = rgbf[..., 2] - bc[2]
+        d = np.sqrt(dr * dr + dg * dg + db * db)
+        # 0 if d<=HARD, ramp to 255 between HARD..SOFT, else 255
+        this_alpha = np.where(
+            d <= HARD,
+            0.0,
+            np.where(
+                d <= SOFT,
+                (d - HARD) / max(1.0, (SOFT - HARD)) * 255.0,
+                255.0,
+            ),
+        )
+        # Take the min — most aggressive per pixel wins (pixel is bg if ANY bg color matches)
+        mask_alpha = np.minimum(mask_alpha, this_alpha)
 
+    # --- 3. Protect colorful foreground (saturated) pixels ---
+    max_ch = rgb.max(axis=-1)
+    min_ch = rgb.min(axis=-1)
+    saturation = (max_ch - min_ch).astype(np.int16)
+    COLORFUL = 40  # Chroma difference above which a pixel is "clearly colored"
+    colorful_mask = saturation >= COLORFUL
+    mask_alpha = np.where(colorful_mask, 255.0, mask_alpha)
+
+    # --- 4. Combine with existing alpha (respect any real transparency already present) ---
+    final_alpha = np.minimum(existing_alpha, mask_alpha.astype(np.int16))
+    final_alpha = np.clip(final_alpha, 0, 255).astype(np.uint8)
+
+    arr[..., 3] = final_alpha
+    out_img = Image.fromarray(arr, mode="RGBA")
     out = BytesIO()
-    img.save(out, format="PNG", optimize=True)
+    out_img.save(out, format="PNG", optimize=True)
     return out.getvalue()
 
 
