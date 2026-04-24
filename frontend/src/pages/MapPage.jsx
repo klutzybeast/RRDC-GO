@@ -5,9 +5,10 @@ import { motion } from "framer-motion";
 import { userApi, formatApiError } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair } from "lucide-react";
+import { LogOut, BackpackIcon, MapPin, Sparkles, Crosshair, HelpCircle } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
+import OnboardingModal from "../components/OnboardingModal";
 import { toast } from "sonner";
 
 const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
@@ -54,6 +55,18 @@ export default function MapPage() {
     const mapRef = useRef(null);
     const pollRef = useRef(null);
     const prevSpawnRef = useRef(null);
+
+    // Onboarding: show once per camper per device
+    const onboardingKey = user?.id ? `rrdc_onboarded_${user.id}` : null;
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    useEffect(() => {
+        if (!onboardingKey) return;
+        if (!localStorage.getItem(onboardingKey)) setShowOnboarding(true);
+    }, [onboardingKey]);
+    const dismissOnboarding = () => {
+        if (onboardingKey) localStorage.setItem(onboardingKey, "1");
+        setShowOnboarding(false);
+    };
 
     // Poll spawn
     const poll = React.useCallback(async () => {
@@ -312,6 +325,14 @@ export default function MapPage() {
                 </div>
                 <div className="flex gap-1.5 sm:gap-2 pointer-events-auto">
                     <button
+                        onClick={() => setShowOnboarding(true)}
+                        className="glass-dark rounded-full p-2"
+                        aria-label="Help"
+                        data-testid="show-onboarding-btn"
+                    >
+                        <HelpCircle className="w-4 h-4" />
+                    </button>
+                    <button
                         onClick={() => nav("/collection")}
                         className="glass-dark rounded-full px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
                         data-testid="open-collection-btn"
@@ -400,6 +421,12 @@ export default function MapPage() {
                     </div>
                 </div>
             )}
+
+            <OnboardingModal
+                open={showOnboarding}
+                camperName={user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                onFinish={dismissOnboarding}
+            />
         </div>
     );
 }
