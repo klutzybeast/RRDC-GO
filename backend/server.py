@@ -126,7 +126,7 @@ class SpawnConfig(BaseModel):
     active_hours_start: int = 9  # 24h
     active_hours_end: int = 15
     spawn_ttl_seconds: int = 3600  # 1h — effectively no timer during play
-    max_active_spawns: int = 5
+    max_active_spawns: int = 6
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     catch_rates: dict = Field(default_factory=lambda: CATCH_RATES.copy())
     catch_radius_meters: int = 40  # How close a camper must be to a spawn to catch it
@@ -522,23 +522,24 @@ async def load_spawn_config() -> dict:
     return cfg
 
 
-async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False) -> Optional[dict]:
+async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False, exclude_ids: Optional[set] = None) -> Optional[dict]:
     weights = cfg.get("rarity_weights") or DEFAULT_RARITY_WEIGHTS
     featured_boost = float(cfg.get("featured_weight_multiplier", 10.0))
+    exclude_ids = exclude_ids or set()
 
-    # If force_featured: try to return ANY active featured pokemon first (any rarity),
-    # weighted by rarity weights so we still respect the global rarity distribution.
+    # If force_featured: pick UNIFORMLY from active featured pokemon (excluding any
+    # already in the burst). This guarantees JonG, Mark, and any other supervisor
+    # uploads get equal representation — not biased by their rarity weight.
     if force_featured:
         feat_docs = await db.pokemon.find(
             {"active": True, "featured": True},
             {"_id": 0},
         ).to_list(500)
-        if feat_docs:
-            # Weight by rarity so legendaries are still rare among featured picks
-            wlist = [float(weights.get(d.get("rarity", "common"), 1)) for d in feat_docs]
-            if sum(wlist) <= 0:
-                wlist = [1.0] * len(feat_docs)
-            return random.choices(feat_docs, weights=wlist, k=1)[0]
+        # Prefer ones we haven't placed in this burst yet
+        fresh = [d for d in feat_docs if d["id"] not in exclude_ids]
+        pool = fresh if fresh else feat_docs
+        if pool:
+            return random.choice(pool)
         # Fall through to normal pick if no featured exist
 
     # Try up to 4 times to get a rarity with actual active pokemon
@@ -631,43 +632,49 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
         next_at = now_utc()
 
     # Decide how many to create RIGHT NOW.
-    #   - If under cap: create enough to reach min(max_active, 4) immediately so
+    #   - If under cap: create enough to reach min(max_active, 5) immediately so
     #     the camper sees Pokemon as soon as they open the app.
     #   - Then space out further spawns by min/max interval.
-    burst_target = min(max_active, 4)
+    burst_target = min(max_active, 5)
     needed = max(0, burst_target - len(current))
     can_burst_now = now_utc() >= next_at and needed > 0
     if not can_burst_now and now_utc() >= next_at and len(current) < max_active:
         # Trickle one in at the scheduled time
         needed = 1
 
+    # How many active "supervisor" (featured) pokemon does the camp have?
+    # Force EACH of them to spawn first in the burst so every supervisor gets
+    # represented before the rarity RNG kicks in for the remaining slots.
+    featured_count = await db.pokemon.count_documents({"active": True, "featured": True})
+    forced_featured_remaining = min(featured_count, needed)
+    placed_ids = {s.get("pokemon_id") for s in current if s}
+
     created = 0
     while needed > 0 and len(current) < max_active:
-        # First spawn in any new batch should be a featured/supervisor pokemon
-        # if at least one is active. This guarantees the user's hand-picked
-        # supervisors ALWAYS show up around camp instead of being lost in the
-        # rarity-weighted RNG.
-        force_featured = (created == 0 and len(current) == 0)
-        pokemon = await pick_spawn_pokemon(cfg, force_featured=force_featured)
+        force_featured = forced_featured_remaining > 0
+        pokemon = await pick_spawn_pokemon(cfg, force_featured=force_featured, exclude_ids=placed_ids)
         if not pokemon:
             break
+        if pokemon.get("featured") and forced_featured_remaining > 0:
+            forced_featured_remaining -= 1
+        placed_ids.add(pokemon["id"])
 
         lat, lng, pin_name, pin_id = None, None, None, None
         if camper_lat is not None and camper_lng is not None:
-            # Tight cluster around the camper so spawns are clearly visible
-            # within their map view (default catch radius is 40m).
-            lat, lng = jitter_location(float(camper_lat), float(camper_lng), 5, 25)
+            # Tight cluster around the camper — within easy walking distance
+            # so kids don't lose interest hunting for them.
+            lat, lng = jitter_location(float(camper_lat), float(camper_lng), 3, 15)
             pin_name = "Nearby"
         else:
             pin = await pick_map_pin()
             if pin:
-                lat, lng = jitter_location(pin.get("latitude"), pin.get("longitude"), 5, 25)
+                lat, lng = jitter_location(pin.get("latitude"), pin.get("longitude"), 3, 15)
                 pin_name = pin.get("name")
                 pin_id = pin.get("id")
             else:
                 clat = float(cfg.get("camp_latitude", 40.6396))
                 clng = float(cfg.get("camp_longitude", -73.6665))
-                lat, lng = jitter_location(clat, clng, 8, 35)
+                lat, lng = jitter_location(clat, clng, 5, 20)
                 pin_name = "Camp"
 
         ttl = int(cfg.get("spawn_ttl_seconds", 600))
