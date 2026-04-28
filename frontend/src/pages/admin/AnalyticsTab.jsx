@@ -38,6 +38,8 @@ export default function AnalyticsTab() {
 
     if (!data) return <div className="text-center text-slate-400 py-16">Loading…</div>;
 
+    const wofLoading = wof === null;
+
     const stats = [
         { label: "Total Catches", value: data.total_catches, icon: Target, color: "bg-river-500" },
         { label: "Campers", value: data.users_count, icon: Users, color: "bg-forest-500" },
@@ -165,7 +167,9 @@ export default function AnalyticsTab() {
                     <Trophy className="w-5 h-5 text-amber-500" /> Supervisor Wall of Fame
                 </h3>
                 <p className="text-xs text-slate-500 mb-4">Catch stats for every featured (supervisor) Pokemon.</p>
-                {!wof || wof.pokemon.length === 0 ? (
+                {!wof || wofLoading ? (
+                    <div className="text-sm text-slate-400 py-8 text-center">Loading…</div>
+                ) : wof.pokemon.length === 0 ? (
                     <div className="text-sm text-slate-400 py-8 text-center">
                         No featured Pokemon yet. Mark some on the Pokemon tab with the ⭐ button.
                     </div>
