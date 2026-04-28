@@ -1079,6 +1079,117 @@ async def admin_analytics(admin=Depends(get_current_admin)):
     }
 
 
+@api.get("/admin/analytics/export")
+async def admin_analytics_export(admin=Depends(get_current_admin)):
+    """Stream a CSV of every catch in the system."""
+    import csv
+    from io import StringIO
+    buf = StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "caught_at", "group_name", "caught_by", "camper_id",
+        "pokemon_name", "rarity", "power_rolled", "pokemon_id",
+    ])
+    async for c in db.catches.find({}, {"_id": 0}).sort("caught_at", 1):
+        writer.writerow([
+            c.get("caught_at", ""),
+            c.get("group_name", ""),
+            c.get("caught_by", ""),
+            c.get("group_id", ""),
+            c.get("pokemon_name", ""),
+            c.get("rarity", ""),
+            c.get("power_rolled", 0),
+            c.get("pokemon_id", ""),
+        ])
+    csv_bytes = buf.getvalue().encode("utf-8")
+    fname = f"rrdc_catches_{now_utc().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/admin/analytics/wall-of-fame")
+async def admin_wall_of_fame(admin=Depends(get_current_admin)):
+    """Aggregate stats per featured (supervisor) pokemon for the Wall of Fame page."""
+    feat_docs = await db.pokemon.find({"featured": True}, {"_id": 0}).to_list(500)
+    pid_to_doc = {d["id"]: d for d in feat_docs}
+    pids = list(pid_to_doc.keys())
+    if not pids:
+        return {"pokemon": []}
+    pipeline = [
+        {"$match": {"pokemon_id": {"$in": pids}}},
+        {"$group": {
+            "_id": "$pokemon_id",
+            "total_catches": {"$sum": 1},
+            "first_caught_at": {"$min": "$caught_at"},
+            "last_caught_at": {"$max": "$caught_at"},
+            "unique_catchers": {"$addToSet": "$group_id"},
+            "top_catcher": {"$first": "$caught_by"},
+        }},
+        {"$addFields": {"unique_catcher_count": {"$size": "$unique_catchers"}}},
+        {"$project": {"unique_catchers": 0}},
+    ]
+    rows = await db.catches.aggregate(pipeline).to_list(500)
+    by_id = {r["_id"]: r for r in rows}
+    out = []
+    for pid, doc in pid_to_doc.items():
+        s = by_id.get(pid, {})
+        out.append({
+            "pokemon_id": pid,
+            "name": doc.get("name", ""),
+            "rarity": doc.get("rarity", "common"),
+            "image_data_url": doc.get("image_data_url", ""),
+            "description": doc.get("description", ""),
+            "active": doc.get("active", False),
+            "total_catches": int(s.get("total_catches", 0)),
+            "unique_catchers": int(s.get("unique_catcher_count", 0)),
+            "first_caught_at": s.get("first_caught_at"),
+            "last_caught_at": s.get("last_caught_at"),
+        })
+    out.sort(key=lambda x: (-x["total_catches"], x["name"]))
+    return {"pokemon": out}
+
+
+@api.get("/supervisor-challenge")
+async def supervisor_challenge(user=Depends(get_current_user)):
+    """Camper-facing weekly 'Catch all supervisors' progress."""
+    week_start = _week_start_iso()
+    feat = await db.pokemon.find(
+        {"active": True, "featured": True},
+        {"_id": 0, "id": 1, "name": 1, "rarity": 1, "image_data_url": 1},
+    ).to_list(500)
+    if not feat:
+        return {"week_start": week_start, "supervisors": [], "caught": 0, "total": 0, "complete": False}
+    pids = [p["id"] for p in feat]
+    caught_pids = set()
+    async for c in db.catches.find(
+        {"group_id": user["id"], "pokemon_id": {"$in": pids}, "caught_at": {"$gte": week_start}},
+        {"_id": 0, "pokemon_id": 1},
+    ):
+        caught_pids.add(c["pokemon_id"])
+    supervisors = []
+    for p in feat:
+        supervisors.append({
+            "pokemon_id": p["id"],
+            "name": p.get("name", ""),
+            "rarity": p.get("rarity", "common"),
+            "image_data_url": p.get("image_data_url", ""),
+            "caught_this_week": p["id"] in caught_pids,
+        })
+    supervisors.sort(key=lambda s: (not s["caught_this_week"], s["name"]))
+    caught = sum(1 for s in supervisors if s["caught_this_week"])
+    total = len(supervisors)
+    return {
+        "week_start": week_start,
+        "supervisors": supervisors,
+        "caught": caught,
+        "total": total,
+        "complete": caught == total and total > 0,
+    }
+
+
 # ----------------------
 # USER - SPAWN
 # ----------------------

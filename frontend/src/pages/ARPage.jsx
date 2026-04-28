@@ -8,6 +8,7 @@ import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
 import RiverBall from "../components/RiverBall";
 import ARFallbackScene from "../components/ARFallbackScene";
+import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
 import { toast } from "sonner";
 import { Camera, CameraOff, LogOut, BackpackIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -145,11 +146,13 @@ export default function ARPage() {
             if (res.data.success) {
                 setResult(res.data);
                 setSpawn(null);
+                tryPlayCatch();
             } else {
                 // Pokemon did NOT flee — it dodged. Let the camper try again.
                 setMissCount((n) => n + 1);
                 setFlash(res.data.message || "Dodged!");
                 setTimeout(() => setFlash(""), 1200);
+                tryPlayMiss();
             }
         } catch (e) {
             const msg = formatApiError(e);

@@ -7,6 +7,9 @@ import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ArrowLeft, ArrowUpDown } from "lucide-react";
 import { motion } from "framer-motion";
+import TrainerAvatar from "../components/TrainerAvatar";
+import { loadAvatarColors } from "../components/TrainerCustomizer";
+import SupervisorChallenge from "../components/SupervisorChallenge";
 
 const RARITY_ORDER = { legendary: 4, rare: 3, uncommon: 2, common: 1 };
 
@@ -55,6 +58,12 @@ export default function CollectionPage() {
                             {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
                         </div>
                     </div>
+                </div>
+
+                {/* Trainer card + supervisor challenge */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <TrainerCard user={user} totalUnique={totalUnique} totalCatches={totalCatches} />
+                    <SupervisorChallenge />
                 </div>
 
                 <div className="mb-8">
@@ -179,3 +188,42 @@ export default function CollectionPage() {
         </div>
     );
 }
+
+function TrainerCard({ user, totalUnique, totalCatches }) {
+    const colors = loadAvatarColors(user?.id);
+    return (
+        <div
+            className="rounded-3xl p-4 shadow-md border border-emerald-200 flex items-center gap-4"
+            style={{
+                background: "linear-gradient(135deg, #ECFDF5 0%, #DBEAFE 100%)",
+            }}
+            data-testid="trainer-card"
+        >
+            <div className="relative shrink-0">
+                <TrainerAvatar size={84} walking colors={colors} />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-widest font-black text-river-700">
+                    Trainer Card
+                </div>
+                <div className="font-heading text-xl font-black text-slate-900 truncate" data-testid="trainer-card-name">
+                    {user?.first_name ? `${user.first_name} ${user.last_name || ""}` : user?.username}
+                </div>
+                <div className="text-[11px] text-slate-600 font-bold uppercase tracking-widest">
+                    Group {user?.group_name}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="rounded-xl bg-white/70 px-2 py-1 text-center">
+                        <div className="font-heading text-lg font-black text-slate-900 leading-none">{totalUnique}</div>
+                        <div className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Unique</div>
+                    </div>
+                    <div className="rounded-xl bg-white/70 px-2 py-1 text-center">
+                        <div className="font-heading text-lg font-black text-slate-900 leading-none">{totalCatches}</div>
+                        <div className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Total</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+

@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt, Volume2, VolumeX } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
@@ -14,7 +14,9 @@ import OutOfBallsModal from "../components/OutOfBallsModal";
 import RiverBall from "../components/RiverBall";
 import TrainerAvatar from "../components/TrainerAvatar";
 import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
+import SupervisorChallenge from "../components/SupervisorChallenge";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
+import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
@@ -54,6 +56,8 @@ export default function MapPage() {
     // Trainer avatar customization (per-camper, persisted in localStorage)
     const [avatarColors, setAvatarColors] = useState(() => loadAvatarColors(user?.id));
     const [showCustomizer, setShowCustomizer] = useState(false);
+    const [legendaryAlert, setLegendaryAlert] = useState(null);
+    const [soundOn, setSoundOn] = useState(isSoundEnabled());
     useEffect(() => { setAvatarColors(loadAvatarColors(user?.id)); }, [user?.id]);
 
     // Onboarding: show once per camper per device
@@ -151,8 +155,21 @@ export default function MapPage() {
             for (const s of list) {
                 if (!seen.has(s.spawn_id)) {
                     seen.add(s.spawn_id);
-                    toast.success(`A wild ${s.pokemon.name} appeared!`, { duration: 3500 });
-                    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+                    if (s.pokemon.rarity === "legendary") {
+                        toast.success(`⚡ LEGENDARY ${s.pokemon.name} appeared!`, { duration: 5000 });
+                        setLegendaryAlert({
+                            id: s.spawn_id,
+                            name: s.pokemon.name,
+                            image: s.pokemon.image_data_url,
+                        });
+                        setTimeout(() => setLegendaryAlert(null), 7000);
+                        tryPlayLegendary();
+                        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
+                    } else {
+                        toast.success(`A wild ${s.pokemon.name} appeared!`, { duration: 3500 });
+                        tryPlaySpawn();
+                        if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+                    }
                 }
             }
             // Prune seen ids not present anymore so we re-announce if it respawns
@@ -539,6 +556,15 @@ export default function MapPage() {
                         <HelpCircle className="w-4 h-4" />
                     </button>
                     <button
+                        onClick={() => { const next = !soundOn; setSoundEnabled(next); setSoundOn(next); }}
+                        className="glass-dark rounded-full p-2"
+                        aria-label={soundOn ? "Mute sounds" : "Unmute sounds"}
+                        title={soundOn ? "Sounds: on" : "Sounds: off"}
+                        data-testid="toggle-sound-btn"
+                    >
+                        {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                    </button>
+                    <button
                         onClick={() => nav("/leaderboard")}
                         className="glass-dark rounded-full p-2"
                         aria-label="Leaderboard"
@@ -559,6 +585,11 @@ export default function MapPage() {
                         <LogOut className="w-4 h-4" />
                     </button>
                 </div>
+            </div>
+
+            {/* Supervisor challenge banner */}
+            <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto">
+                <SupervisorChallenge compact />
             </div>
 
             {/* Bottom hud */}
@@ -667,6 +698,30 @@ export default function MapPage() {
                 onClose={() => setShowCustomizer(false)}
                 onSave={(c) => setAvatarColors(c)}
             />
+
+            {/* Camp-wide legendary banner */}
+            {legendaryAlert && (
+                <motion.div
+                    initial={{ y: -100, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -100, opacity: 0 }}
+                    className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-[90vw]"
+                    data-testid="legendary-alert-banner"
+                >
+                    <div className="rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-900 px-4 py-2.5 shadow-2xl border-2 border-amber-600 flex items-center gap-3 animate-pulse">
+                        {legendaryAlert.image ? (
+                            <img src={legendaryAlert.image} alt="" className="w-10 h-10 object-contain" draggable={false} />
+                        ) : (
+                            <Sparkles className="w-8 h-8" />
+                        )}
+                        <div>
+                            <div className="text-[9px] uppercase tracking-widest font-black">⚡ Legendary Spotted</div>
+                            <div className="font-heading text-lg font-black leading-none">{legendaryAlert.name}</div>
+                            <div className="text-[10px] font-bold opacity-80">Catch it before it's gone!</div>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
         </div>
     );
 }
