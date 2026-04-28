@@ -182,3 +182,35 @@ Also updated the Nano Banana system prompt to request solid-white (never checker
 ### Quality
 - Iteration_6 testing agent: all 23 pokemon pass transparency + body-preservation thresholds. No regressions on leaderboard, spawn, catch, auth endpoints.
 - Synthetic unit test `/tmp/test_bg_remover.py` passes (79.99% stripped on a checker+red-circle, 100% red preserved).
+
+
+---
+
+## Iteration 10 — Spawn DB crash fix + Live Camper Map + Scheduled Windows (2026-04-28)
+
+### P0 — DocumentTooLarge crash fixed
+With multi-spawn bursts (5–6 Pokémon at once) and 2–4 MB base64 images per Pokémon, the per-group `group_spawns` document blew past MongoDB's 16 MB hard limit and every poll started returning 500. Fix:
+1. Stripped `image_data_url` from the slim pokemon copy embedded in `group_spawns.current_spawns` (line 683 in `server.py`).
+2. `GET /api/spawn/current` now bulk-fetches images from the `pokemon` collection by `pokemon_id` and re-attaches them on read.
+3. `POST /api/spawn/catch` now re-fetches the image before persisting the catch row and returning to the client (so the catch modal still gets the full data URL).
+4. Wiped 28 already-bloated `group_spawns` documents post-deploy.
+
+Verified by iteration_10 testing agent: 5+10 sequential polls under load — zero 500s, all spawns return non-empty image_data_url, catches succeed with image attached.
+
+### P1 — Admin Live Camper Map
+New "Live Map" tab in the Director Panel (`/app/frontend/src/pages/admin/CamperMapTab.jsx`). Polls `/api/admin/camper-positions` every 5 s and shows each active camper as a colored initial-marker on a Pokémon-GO-styled Google Map, with a sortable sidebar list, group filter dropdown, max-age selector, and "Fit to campers" button. Camp center pin is loaded from spawn config.
+
+### P2 — Scheduled activation windows
+`SpawnConfig.scheduled_windows: list` field added — each entry is `{label, start, end}` ISO datetimes. `is_within_active_hours()` rewritten so:
+- If any window covers NOW → enabled.
+- Else if any window is in the future → strictly gated (off until next window).
+- Else (all past or empty) → fall back to daily `active_hours_start/end`.
+
+Admin UI in `SpawnConfigTab.jsx`: "+ Add window" appends a row with label / `datetime-local` start / `datetime-local` end / Remove. Saved together with the rest of the config via `PUT /admin/spawn-config`.
+
+### Backlog (now P2/P3)
+- Refactor 2416-line `server.py` into `/app/backend/routers/{auth,spawn,admin,camper,analytics}.py`.
+- ScheduledWindow Pydantic submodel for stricter validation + max-count guard on `PUT /admin/spawn-config`.
+- Migrate `google.maps.Marker` → `AdvancedMarkerElement` (deprecation warning, non-blocking).
+- TZ field on SpawnConfig so daily-hours fallback isn't tied to server local time.
+- Index `camper_positions.updated_at` and apply `$gte` filter at query time for very large rosters.
