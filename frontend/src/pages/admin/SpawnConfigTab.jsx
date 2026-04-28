@@ -33,10 +33,54 @@ export default function SpawnConfigTab() {
                 camp_default_zoom: Number(cfg.camp_default_zoom || 17),
                 rarity_weights: Object.fromEntries(RARITIES.map((r) => [r, Number(cfg.rarity_weights?.[r] ?? 0)])),
                 catch_rates: Object.fromEntries(RARITIES.map((r) => [r, Math.max(0, Math.min(1, Number(cfg.catch_rates?.[r] ?? 0)))])),
+                scheduled_windows: (cfg.scheduled_windows || [])
+                    .filter((w) => w.start && w.end)
+                    .map((w) => ({
+                        label: w.label || "",
+                        start: new Date(w.start).toISOString(),
+                        end: new Date(w.end).toISOString(),
+                    })),
             });
             toast.success("Spawn config saved");
         } catch (e) { toast.error(formatApiError(e)); }
         finally { setSaving(false); }
+    };
+
+    // datetime-local needs "YYYY-MM-DDTHH:MM" (no seconds, no zone)
+    const toLocalInput = (iso) => {
+        if (!iso) return "";
+        try {
+            const d = new Date(iso);
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        } catch { return ""; }
+    };
+
+    const updateWindow = (idx, patch) => {
+        const list = [...(cfg.scheduled_windows || [])];
+        list[idx] = { ...list[idx], ...patch };
+        setCfg({ ...cfg, scheduled_windows: list });
+    };
+
+    const addWindow = () => {
+        const now = new Date();
+        const start = new Date(now);
+        start.setHours(9, 0, 0, 0);
+        const end = new Date(now);
+        end.setHours(15, 0, 0, 0);
+        setCfg({
+            ...cfg,
+            scheduled_windows: [
+                ...(cfg.scheduled_windows || []),
+                { label: "Camp Day", start: start.toISOString(), end: end.toISOString() },
+            ],
+        });
+    };
+
+    const removeWindow = (idx) => {
+        const list = [...(cfg.scheduled_windows || [])];
+        list.splice(idx, 1);
+        setCfg({ ...cfg, scheduled_windows: list });
     };
 
     if (!cfg) return <div className="text-center text-slate-400 py-16">Loading…</div>;
@@ -220,6 +264,63 @@ export default function SpawnConfigTab() {
                             </div>
                         ))}
                     </div>
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-br from-river-50 to-white p-4 border border-river-200">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                            <Label className="text-base text-slate-900 font-bold">Scheduled activation windows</Label>
+                            <p className="text-xs text-slate-500">
+                                Add specific date/time ranges when the game is "on". When at least one window is set, the game ignores the daily hours above and follows your windows. Leave empty to use daily hours only.
+                            </p>
+                        </div>
+                        <Button type="button" onClick={addWindow} variant="outline" className="rounded-2xl shrink-0" data-testid="add-window-btn">
+                            + Add window
+                        </Button>
+                    </div>
+                    {(cfg.scheduled_windows || []).length === 0 ? (
+                        <div className="text-xs text-slate-400 py-3 text-center italic">No scheduled windows — using daily hours.</div>
+                    ) : (
+                        <div className="space-y-2 mt-3">
+                            {(cfg.scheduled_windows || []).map((w, i) => (
+                                <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end bg-white rounded-xl p-3 border border-slate-200" data-testid={`window-row-${i}`}>
+                                    <div>
+                                        <Label className="text-xs">Label</Label>
+                                        <Input
+                                            value={w.label || ""}
+                                            onChange={(e) => updateWindow(i, { label: e.target.value })}
+                                            placeholder="e.g. Tuesday Camp Day"
+                                            className="rounded-xl h-10"
+                                            data-testid={`window-label-${i}`}
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Start</Label>
+                                        <Input
+                                            type="datetime-local"
+                                            value={toLocalInput(w.start)}
+                                            onChange={(e) => updateWindow(i, { start: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+                                            className="rounded-xl h-10"
+                                            data-testid={`window-start-${i}`}
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">End</Label>
+                                        <Input
+                                            type="datetime-local"
+                                            value={toLocalInput(w.end)}
+                                            onChange={(e) => updateWindow(i, { end: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+                                            className="rounded-xl h-10"
+                                            data-testid={`window-end-${i}`}
+                                        />
+                                    </div>
+                                    <Button type="button" variant="outline" onClick={() => removeWindow(i)} className="rounded-xl h-10 text-red-600 border-red-200 hover:bg-red-50" data-testid={`window-remove-${i}`}>
+                                        Remove
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="pt-2">

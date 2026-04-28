@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 10: Validated all P0/P1/P2 fixes. Backend (9/9 pytest pass): spawn/current returns image_data_url for all spawned pokemon, no DocumentTooLarge across 5+10 sequential polls; spawn/catch returns success/fled cleanly, on success the pokemon.image_data_url is re-attached from pokemon collection (no 500); /admin/camper-positions returns {count, positions} with full shape + admin-auth gate; PUT /admin/spawn-config persists scheduled_windows[] and GET returns it; is_within_active_hours unit test confirms scheduled-window NOW overrides off-hours and past-only windows fall back to daily hours. Frontend: Admin Live Map tab renders heading 'Where are my campers?', Google Map, count badge '2 campers live', and sidebar list. SpawnConfigTab shows 'Scheduled activation windows' section, add-window-btn appends a row with Label/Start/End/Remove (testids window-label-0/window-start-0/window-end-0/window-remove-0), remove works, Save Configuration clicked.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iteration10_results.xml"
+  ],
+  "verified_features": [
+    "GET /api/spawn/current?lat=40.6396&lng=-73.6665: 5 sequential polls all 200; image_data_url populated (data:... starts) on every spawned pokemon.",
+    "GET /api/spawn/current: 10 sequential rapid polls all 200 — no DocumentTooLarge / 500.",
+    "POST /api/spawn/catch: never returns 500 across up to 10 throws; on success result.pokemon.image_data_url is a non-empty data: URL (re-fetched from pokemon collection); fled/400 cases handled gracefully.",
+    "GET /api/admin/camper-positions: 401 without auth; with admin Bearer returns {count, positions[]} where each position has camper_id, first_name, last_name, group_code, latitude (float), longitude (float), updated_at. Saw 2 live campers (Anthony Forte B09 17m, Zayn Ali B09 8m).",
+    "PUT /api/admin/spawn-config with scheduled_windows=[{label,start,end},...] persists; GET returns the same labels back.",
+    "Setting active_hours_start=end=0 + scheduled_windows containing NOW → spawn/current still enabled=True. Direct call to is_within_active_hours: NOW window=True, past-only+off=False, past-only+matching daily hours=True.",
+    "Frontend admin Live Map (data-testid=admin-tab-campers → camper-map-tab): heading 'Where are my campers?', Google Map renders with camp center marker, count badge '2 campers live', sidebar shows both campers with avatars, group code, and age (17m/8m ago). Refresh / Fit to campers / group filter / max-age inputs all rendered with correct testids.",
+    "Frontend SpawnConfigTab: 'Scheduled activation windows' section header present; data-testid=add-window-btn appends a row containing data-testid=window-label-{i}, window-start-{i} (datetime-local), window-end-{i} (datetime-local), and window-remove-{i}. Default new row prefilled (label='Camp Day', 09:00–15:00 today). Add 2 then remove first leaves exactly 1 row. Save Configuration button click fires (button visible & enabled)."
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 2416 lines — exceeds the 700-line guideline. Consider splitting routers (spawn, admin, camper, analytics) into separate modules.",
+    "spawn_catch lines 1305-1309: image re-fetch happens on every catch attempt (1 query each). For high-traffic, consider caching pokemon image map in-process or attaching once at spawn-creation in a separate (non-persisted) response model. Current impl is correct but adds 1 DB call per throw.",
+    "is_within_active_hours uses now.astimezone().hour for daily-hours fallback — depends on server local TZ. Behavior is fine in this single-camp deployment but a TZ field on SpawnConfig would make it more portable.",
+    "CamperMapTab uses google.maps.Marker (deprecated per Google warning). Migration to AdvancedMarkerElement is recommended but non-blocking.",
+    "scheduled_windows entries are stored as untyped dicts (list field) in SpawnConfig — no Pydantic validation of {label,start,end} shape. Bad data submitted via API would silently be skipped by is_within_active_hours (try/except). A nested ScheduledWindow model would surface invalid payloads with 422.",
+    "PUT /admin/spawn-config validates active_hours range but not scheduled_windows.start < end nor max count — admin could submit hundreds of windows.",
+    "/admin/camper-positions iterates camper_positions collection and filters in Python; for many campers consider an index on updated_at and a Mongo $gte filter at query time."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py"
+  ],
+  "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% on all targeted selectors"},
+  "test_credentials": "Admin admin/Camp1993; Camper login via /api/groups → /api/groups/{code}/campers (returns LIST not {campers: [...]}) → POST /api/camper/login {camper_id}.",
+  "seed_data_creation": "None. Used existing 12+ pokemon, 2 live camper positions (Anthony Forte / Zayn Ali in B09). PUT spawn-config tests restore the original config in their finally blocks so no admin state was left mutated.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend test file: /app/backend/tests/test_iteration10.py. NOTE: /api/groups/{code}/campers returns a JSON list directly (not wrapped in {campers: [...]}); old wrapper-style fixtures will crash. The Emergent preview iframe does not allow geolocation — pass lat/lng query params to /api/spawn/current. Frontend testids added in this iteration: admin-tab-campers, camper-map-tab, camper-map-max-age, camper-map-group-filter, camper-map-refresh, camper-map-fit, camper-pin-{id}, camper-row-{id}, add-window-btn, window-label-{i}, window-start-{i}, window-end-{i}, window-remove-{i}. spawn_catch correctly re-attaches image_data_url from pokemon collection on success.",
+  "rca of the issue": "All previously reported P0/P1/P2 issues are resolved by the agent's last patch. The DocumentTooLarge crash was caused by storing full base64 image_data_url inside group_spawns docs; the fix (strip image at write, re-fetch from pokemon collection at read) is verified end-to-end here over 15 polls + 10 catch attempts with no 500s. scheduled_windows correctly overrides daily hours when a window covers NOW and falls back when all windows are in the past."
+}

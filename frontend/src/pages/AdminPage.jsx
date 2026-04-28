@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
-import { LogOut, Users, Sparkles, Clock, BarChart3, MapPin, HandCoins } from "lucide-react";
+import { LogOut, Users, Sparkles, Clock, BarChart3, MapPin, HandCoins, Compass } from "lucide-react";
 import RosterTab from "./admin/RosterTab";
 import PokemonTab from "./admin/PokemonTab";
 import SpawnConfigTab from "./admin/SpawnConfigTab";
 import AnalyticsTab from "./admin/AnalyticsTab";
 import MapPinsTab from "./admin/MapPinsTab";
 import WalletTab from "./admin/WalletTab";
+import CamperMapTab from "./admin/CamperMapTab";
 
 const TABS = [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
@@ -16,6 +17,7 @@ const TABS = [
     { id: "wallet", label: "Balls", icon: HandCoins },
     { id: "pokemon", label: "Pokemon", icon: Sparkles },
     { id: "pins", label: "Map Pins", icon: MapPin },
+    { id: "campers", label: "Live Map", icon: Compass },
     { id: "spawns", label: "Spawns", icon: Clock },
 ];
 
@@ -72,6 +74,7 @@ export default function AdminPage() {
                 {tab === "wallet" && <WalletTab />}
                 {tab === "pokemon" && <PokemonTab />}
                 {tab === "pins" && <MapPinsTab />}
+                {tab === "campers" && <CamperMapTab />}
                 {tab === "spawns" && <SpawnConfigTab />}
             </div>
         </div>

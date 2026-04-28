@@ -134,6 +134,11 @@ class SpawnConfig(BaseModel):
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
     camp_default_zoom: int = 18
+    # Optional list of one-off scheduled windows when the game is "on". Each
+    # entry is {label, start, end} where start/end are ISO datetime strings
+    # (with timezone). If ANY window is non-empty for today, the game is
+    # gated by the windows instead of (or in addition to) active_hours_*.
+    scheduled_windows: list = Field(default_factory=list)
 
 
 class CamperOut(BaseModel):
@@ -492,9 +497,37 @@ def now_utc() -> datetime:
 
 
 def is_within_active_hours(cfg: dict) -> bool:
+    """
+    A spawn is allowed when:
+      • Any scheduled_windows entry is currently active (overrides hours), OR
+      • If there are NO upcoming/today windows defined, fall back to the
+        daily active_hours_start/end window.
+    """
+    now = now_utc()
+    windows = cfg.get("scheduled_windows") or []
+    if windows:
+        any_today_or_future = False
+        for w in windows:
+            try:
+                s = datetime.fromisoformat(w.get("start"))
+                e = datetime.fromisoformat(w.get("end"))
+            except Exception:
+                continue
+            if s.tzinfo is None:
+                s = s.replace(tzinfo=timezone.utc)
+            if e.tzinfo is None:
+                e = e.replace(tzinfo=timezone.utc)
+            if e >= now:
+                any_today_or_future = True
+            if s <= now <= e:
+                return True
+        # If at least one window exists in the future, gate strictly by windows.
+        if any_today_or_future:
+            return False
+        # All windows are in the past — fall through to daily hours.
     start = cfg.get("active_hours_start", 0)
     end = cfg.get("active_hours_end", 24)
-    h = now_utc().astimezone().hour  # server local - okay for camp day
+    h = now.astimezone().hour  # server local - okay for camp day
     if start <= end:
         return start <= h < end
     return h >= start or h < end
@@ -1266,7 +1299,14 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     if int(wallet["balance"]) < 1:
         raise HTTPException(402, "You're out of Rolling River Balls! Earn more by walking to a camp pin or come back tomorrow.")
 
-    pokemon = cur["pokemon"]
+    # The spawn doc holds a SLIM pokemon (no image_data_url) to stay under
+    # MongoDB's 16MB doc limit. Re-attach the image from the pokemon collection
+    # so it can be saved on the catch record and returned to the camper.
+    pokemon = dict(cur["pokemon"])
+    if not pokemon.get("image_data_url"):
+        full = await db.pokemon.find_one({"id": cur.get("pokemon_id")}, {"_id": 0, "image_data_url": 1})
+        if full:
+            pokemon["image_data_url"] = full.get("image_data_url", "")
     rarity = pokemon.get("rarity", "common")
     effective_rates = cfg.get("catch_rates") or CATCH_RATES
     base_rate = float(effective_rates.get(rarity, CATCH_RATES.get(rarity, 0.5)))
