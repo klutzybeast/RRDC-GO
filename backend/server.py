@@ -929,25 +929,26 @@ async def admin_delete_pokemon(pokemon_id: str, admin=Depends(get_current_admin)
 @api.post("/admin/pokemon/bulk-upload")
 async def admin_bulk_upload_pokemon(
     files: List[UploadFile] = File(...),
-    rarity: str = Form("common"),
+    names: List[str] = Form([]),
+    rarities: List[str] = Form([]),
+    descriptions: List[str] = Form([]),
     active: bool = Form(True),
     featured: bool = Form(True),
     admin=Depends(get_current_admin),
 ):
-    """Upload many images at once. Each image becomes a new Pokemon whose name
-    is derived from the filename (without extension). Backgrounds are auto-stripped."""
-    if rarity not in ("common", "uncommon", "rare", "legendary"):
-        raise HTTPException(400, "Invalid rarity")
+    """Upload many images at once. Optional per-image overrides via parallel arrays:
+       `names[i]`, `rarities[i]`, `descriptions[i]`. Falls back to filename for the
+       name and "common" for the rarity when not provided."""
     if not files:
         raise HTTPException(400, "No files provided")
+    valid_rarities = {"common", "uncommon", "rare", "legendary"}
 
-    # Determine the next slot number once and increment locally
     last = await db.pokemon.find_one({}, sort=[("slot_number", -1)])
     next_slot = (last.get("slot_number", 0) if last else 0) + 1
 
     created = []
     failed = []
-    for f in files:
+    for i, f in enumerate(files):
         try:
             if f.content_type not in ("image/jpeg", "image/png", "image/webp"):
                 failed.append({"name": f.filename, "error": "unsupported file type"})
@@ -967,16 +968,27 @@ async def admin_bulk_upload_pokemon(
                 mime = f.content_type
             b64 = base64.b64encode(data).decode()
             data_url = f"data:{mime};base64,{b64}"
-            # Pretty name from filename (strip extension, replace separators)
-            base_name = (f.filename or f"Pokemon {next_slot}").rsplit(".", 1)[0]
-            base_name = base_name.replace("_", " ").replace("-", " ").strip()[:40] or f"Pokemon {next_slot}"
+
+            # Per-file name override; fall back to filename
+            override_name = names[i].strip() if i < len(names) and names[i] else ""
+            base_name = override_name or (f.filename or f"Pokemon {next_slot}").rsplit(".", 1)[0]
+            base_name = base_name.replace("_", " ").replace("-", " ").strip()[:60] or f"Pokemon {next_slot}"
+
+            # Per-file rarity override; fall back to "common"
+            this_rarity = rarities[i].strip().lower() if i < len(rarities) and rarities[i] else "common"
+            if this_rarity not in valid_rarities:
+                this_rarity = "common"
+
+            # Per-file description; fall back to default
+            this_desc = descriptions[i].strip() if i < len(descriptions) and descriptions[i] else f"Uploaded by admin on {now_utc().date().isoformat()}"
+
             doc = {
                 "id": str(uuid.uuid4()),
                 "slot_number": next_slot,
                 "name": base_name,
                 "power_level": 150 if featured else 100,
-                "rarity": rarity,
-                "description": f"Uploaded by admin on {now_utc().date().isoformat()}",
+                "rarity": this_rarity,
+                "description": this_desc[:500],
                 "image_data_url": data_url,
                 "active": bool(active),
                 "featured": bool(featured),

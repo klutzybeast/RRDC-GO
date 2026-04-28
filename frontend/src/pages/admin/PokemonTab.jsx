@@ -22,8 +22,8 @@ export default function PokemonTab() {
     const [uploading, setUploading] = useState(false);
     const [seeding, setSeeding] = useState(false);
     const [bulkOpen, setBulkOpen] = useState(false);
-    const [bulkFiles, setBulkFiles] = useState([]);
-    const [bulkRarity, setBulkRarity] = useState("uncommon");
+    // Each item: { file, name, rarity, description, preview }
+    const [bulkItems, setBulkItems] = useState([]);
     const [bulkActive, setBulkActive] = useState(true);
     const [bulkFeatured, setBulkFeatured] = useState(true);
     const [bulkRunning, setBulkRunning] = useState(false);
@@ -85,23 +85,62 @@ export default function PokemonTab() {
         } catch (e) { toast.error(formatApiError(e)); }
     };
 
+    const onBulkFilesPicked = (e) => {
+        const files = Array.from(e.target.files || []);
+        const items = files.map((f) => {
+            const baseName = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+            return {
+                file: f,
+                name: baseName.slice(0, 60),
+                rarity: "common",
+                description: "",
+                preview: URL.createObjectURL(f),
+            };
+        });
+        setBulkItems(items);
+    };
+
+    const updateBulkItem = (i, patch) => {
+        setBulkItems((arr) => arr.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+    };
+
+    const removeBulkItem = (i) => {
+        setBulkItems((arr) => {
+            const it = arr[i];
+            if (it?.preview) URL.revokeObjectURL(it.preview);
+            return arr.filter((_, idx) => idx !== i);
+        });
+    };
+
+    const setRarityForAll = (r) => {
+        setBulkItems((arr) => arr.map((it) => ({ ...it, rarity: r })));
+    };
+
     const runBulkUpload = async () => {
-        if (!bulkFiles.length) { toast.error("Pick at least one image"); return; }
+        if (!bulkItems.length) { toast.error("Pick at least one image"); return; }
+        const blanks = bulkItems.filter((it) => !it.name?.trim());
+        if (blanks.length) { toast.error(`${blanks.length} item(s) need a name`); return; }
         setBulkRunning(true);
         setBulkResult(null);
         try {
             const fd = new FormData();
-            bulkFiles.forEach((f) => fd.append("files", f));
-            fd.append("rarity", bulkRarity);
+            bulkItems.forEach((it) => {
+                fd.append("files", it.file);
+                fd.append("names", it.name.trim());
+                fd.append("rarities", it.rarity);
+                fd.append("descriptions", it.description || "");
+            });
             fd.append("active", String(bulkActive));
             fd.append("featured", String(bulkFeatured));
             const res = await adminApi.post("/admin/pokemon/bulk-upload", fd, {
                 headers: { "Content-Type": "multipart/form-data" },
-                timeout: 120000,
+                timeout: 180000,
             });
             setBulkResult(res.data);
             toast.success(`Created ${res.data.created_count} • Failed ${res.data.failed_count}`);
-            setBulkFiles([]);
+            // Free the preview URLs and clear the staging list on success
+            bulkItems.forEach((it) => it.preview && URL.revokeObjectURL(it.preview));
+            setBulkItems([]);
             if (bulkFileRef.current) bulkFileRef.current.value = "";
             load();
         } catch (e) { toast.error(formatApiError(e)); }
@@ -297,53 +336,130 @@ export default function PokemonTab() {
 
             {/* Bulk upload dialog */}
             <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
-                <DialogContent className="rounded-3xl max-w-lg" data-testid="bulk-upload-dialog">
+                <DialogContent className="rounded-3xl max-w-3xl max-h-[90vh] flex flex-col" data-testid="bulk-upload-dialog">
                     <DialogHeader>
                         <DialogTitle className="font-heading text-2xl flex items-center gap-2">
                             <FileUp className="w-6 h-6 text-river-600" /> Bulk Upload Pokemon
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <p className="text-sm text-slate-600">
-                            Pick multiple images (PNG / JPG / WEBP). Each one becomes a new Pokemon — the filename becomes the name. Backgrounds are auto-stripped.
+
+                    <div className="space-y-3 py-1 overflow-y-auto pr-1 flex-1 min-h-0">
+                        <p className="text-xs text-slate-500">
+                            Pick PNG / JPG / WEBP files. Edit the <b>name</b>, <b>rarity</b>, and <b>description</b> for each one before uploading.
                         </p>
-                        <div>
-                            <Label className="text-sm">Images</Label>
-                            <input
-                                ref={bulkFileRef}
-                                type="file"
-                                multiple
-                                accept="image/png,image/jpeg,image/webp"
-                                onChange={(e) => setBulkFiles(Array.from(e.target.files || []))}
-                                className="block w-full text-sm rounded-2xl border border-slate-200 px-3 py-2 mt-1 file:mr-3 file:rounded-xl file:border-0 file:bg-river-100 file:text-river-700 file:px-3 file:py-1.5 file:font-bold"
-                                data-testid="bulk-upload-files"
-                            />
-                            {bulkFiles.length > 0 && (
-                                <p className="text-xs text-slate-500 mt-1">
-                                    Selected: <span className="font-bold text-slate-900">{bulkFiles.length}</span> file{bulkFiles.length === 1 ? "" : "s"}
-                                    {" • "}
-                                    {bulkFiles.slice(0, 3).map((f) => f.name.split(".")[0]).join(", ")}
-                                    {bulkFiles.length > 3 ? `, +${bulkFiles.length - 3} more` : ""}
-                                </p>
-                            )}
+
+                        {/* File picker */}
+                        <input
+                            ref={bulkFileRef}
+                            type="file"
+                            multiple
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={onBulkFilesPicked}
+                            className="block w-full text-sm rounded-2xl border border-slate-200 px-3 py-2 file:mr-3 file:rounded-xl file:border-0 file:bg-river-100 file:text-river-700 file:px-3 file:py-1.5 file:font-bold"
+                            data-testid="bulk-upload-files"
+                        />
+
+                        {/* Quick "set all to rarity" buttons */}
+                        {bulkItems.length > 1 && (
+                            <div className="flex items-center gap-2 flex-wrap text-xs text-slate-600 bg-slate-50 rounded-2xl p-2">
+                                <span className="font-bold uppercase tracking-widest">Apply to all:</span>
+                                {RARITIES.map((r) => (
+                                    <button
+                                        key={r}
+                                        type="button"
+                                        onClick={() => setRarityForAll(r)}
+                                        className="px-2.5 py-1 rounded-full bg-white border border-slate-200 hover:bg-slate-100 capitalize"
+                                        data-testid={`bulk-set-all-${r}`}
+                                    >
+                                        {r}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Per-image rows */}
+                        {bulkItems.length === 0 ? (
+                            <div className="rounded-2xl border-2 border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
+                                No images selected yet
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {bulkItems.map((it, i) => (
+                                    <div
+                                        key={i}
+                                        className="rounded-2xl bg-slate-50 border border-slate-200 p-3 flex gap-3 items-start"
+                                        data-testid={`bulk-item-${i}`}
+                                    >
+                                        <img
+                                            src={it.preview}
+                                            alt={it.name}
+                                            className="w-16 h-16 rounded-xl object-cover bg-white border border-slate-200 shrink-0"
+                                            draggable={false}
+                                        />
+                                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            <div className="sm:col-span-2">
+                                                <Label className="text-[10px] uppercase tracking-widest text-slate-500">Name</Label>
+                                                <Input
+                                                    value={it.name}
+                                                    onChange={(e) => updateBulkItem(i, { name: e.target.value })}
+                                                    className="rounded-xl h-9 text-sm"
+                                                    data-testid={`bulk-name-${i}`}
+                                                    placeholder="Pokemon name"
+                                                />
+                                            </div>
+                                            <div>
+                                                <Label className="text-[10px] uppercase tracking-widest text-slate-500">Rarity</Label>
+                                                <Select
+                                                    value={it.rarity}
+                                                    onValueChange={(v) => updateBulkItem(i, { rarity: v })}
+                                                >
+                                                    <SelectTrigger className="rounded-xl h-9 text-sm" data-testid={`bulk-rarity-${i}`}>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {RARITIES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="sm:col-span-3">
+                                                <Label className="text-[10px] uppercase tracking-widest text-slate-500">Description</Label>
+                                                <Textarea
+                                                    value={it.description}
+                                                    onChange={(e) => updateBulkItem(i, { description: e.target.value })}
+                                                    rows={2}
+                                                    className="rounded-xl text-sm"
+                                                    data-testid={`bulk-desc-${i}`}
+                                                    placeholder="Optional — short blurb the campers see in their Pokedex"
+                                                />
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => removeBulkItem(i)}
+                                            className="w-8 h-8 rounded-full bg-white border border-slate-200 text-red-500 hover:bg-red-50 flex items-center justify-center shrink-0"
+                                            title="Remove this image"
+                                            data-testid={`bulk-remove-${i}`}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Batch toggles */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                                <Label className="text-slate-900 text-sm">Activate immediately</Label>
+                                <Switch checked={bulkActive} onCheckedChange={setBulkActive} data-testid="bulk-upload-active" />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl bg-amber-50 border border-amber-200 p-3">
+                                <Label className="text-slate-900 flex items-center gap-1 text-sm">
+                                    <Star className="w-4 h-4 text-amber-500 fill-amber-400" /> Featured
+                                </Label>
+                                <Switch checked={bulkFeatured} onCheckedChange={setBulkFeatured} data-testid="bulk-upload-featured" />
+                            </div>
                         </div>
-                        <div>
-                            <Label className="text-sm">Rarity (applies to all)</Label>
-                            <Select value={bulkRarity} onValueChange={setBulkRarity}>
-                                <SelectTrigger className="rounded-2xl h-11 mt-1" data-testid="bulk-upload-rarity"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {RARITIES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
-                            <Label className="text-slate-900">Activate immediately</Label>
-                            <Switch checked={bulkActive} onCheckedChange={setBulkActive} data-testid="bulk-upload-active" />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl bg-amber-50 border border-amber-200 p-3">
-                            <Label className="text-slate-900 flex items-center gap-1"><Star className="w-4 h-4 text-amber-500 fill-amber-400" /> Featured (supervisor)</Label>
-                            <Switch checked={bulkFeatured} onCheckedChange={setBulkFeatured} data-testid="bulk-upload-featured" />
-                        </div>
+
                         {bulkResult && (
                             <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-sm" data-testid="bulk-upload-result">
                                 <div className="font-bold text-emerald-800">
@@ -359,15 +475,16 @@ export default function PokemonTab() {
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
+
+                    <DialogFooter className="border-t border-slate-100 pt-3">
                         <Button variant="outline" onClick={() => setBulkOpen(false)} className="rounded-2xl">Close</Button>
                         <Button
                             onClick={runBulkUpload}
-                            disabled={bulkRunning || bulkFiles.length === 0}
+                            disabled={bulkRunning || bulkItems.length === 0}
                             className="tactile-btn rounded-2xl bg-river-500 hover:bg-river-600 text-white font-heading"
                             data-testid="bulk-upload-submit"
                         >
-                            {bulkRunning ? "Uploading…" : `Upload ${bulkFiles.length || ""}`}
+                            {bulkRunning ? "Uploading…" : `Upload ${bulkItems.length || ""}`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
