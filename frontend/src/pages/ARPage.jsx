@@ -7,6 +7,7 @@ import CatchSuccessModal from "../components/CatchSuccessModal";
 import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
 import RiverBall from "../components/RiverBall";
+import ARFallbackScene from "../components/ARFallbackScene";
 import { toast } from "sonner";
 import { Camera, CameraOff, LogOut, BackpackIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -191,16 +192,8 @@ export default function ARPage() {
             {/* Camera feed */}
             <video ref={videoRef} className="ar-video" playsInline muted autoPlay />
 
-            {/* Fallback background when camera is off / denied */}
-            {camStatus !== "running" && (
-                <div
-                    className="absolute inset-0 z-[1]"
-                    style={{
-                        background: "radial-gradient(circle at 30% 20%, #0ea5a1 0%, #0b2545 55%, #050b1f 100%)",
-                    }}
-                    data-testid="ar-fallback-bg"
-                />
-            )}
+            {/* Cartoony Pokemon-GO-style fallback when camera is off / denied */}
+            {camStatus !== "running" && <ARFallbackScene />}
 
             {/* Camera permission / unavailable prompt — only when the user WANTS camera on */}
             {cameraOn && (camStatus === "denied" || camStatus === "error" || camStatus === "unavailable") && (

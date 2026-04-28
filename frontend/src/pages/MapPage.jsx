@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
@@ -13,6 +13,7 @@ import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
 import RiverBall from "../components/RiverBall";
 import TrainerAvatar from "../components/TrainerAvatar";
+import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
@@ -49,6 +50,11 @@ export default function MapPage() {
     const mapRef = useRef(null);
     const pollRef = useRef(null);
     const seenSpawnIdsRef = useRef(new Set());
+
+    // Trainer avatar customization (per-camper, persisted in localStorage)
+    const [avatarColors, setAvatarColors] = useState(() => loadAvatarColors(user?.id));
+    const [showCustomizer, setShowCustomizer] = useState(false);
+    useEffect(() => { setAvatarColors(loadAvatarColors(user?.id)); }, [user?.id]);
 
     // Onboarding: show once per camper per device
     const onboardingKey = user?.id ? `rrdc_onboarded_${user.id}` : null;
@@ -379,7 +385,7 @@ export default function MapPage() {
                                 style={{ transform: "translate(-50%, -90%)" }}
                                 data-testid="my-location-avatar"
                             >
-                                <TrainerAvatar size={88} walking={isWalking} />
+                                <TrainerAvatar size={88} walking={isWalking} colors={avatarColors} />
                             </div>
                         </OverlayView>
                     )}
@@ -497,6 +503,16 @@ export default function MapPage() {
                 data-testid="locate-me-btn"
             >
                 <Crosshair className="w-5 h-5" />
+            </button>
+
+            {/* Customize avatar FAB */}
+            <button
+                onClick={() => setShowCustomizer(true)}
+                className="absolute bottom-32 right-20 z-10 w-12 h-12 rounded-full flex items-center justify-center shadow-lg tactile-btn bg-gradient-to-br from-amber-400 to-amber-500 text-slate-900"
+                title="Customize my trainer"
+                data-testid="customize-trainer-btn"
+            >
+                <Shirt className="w-5 h-5" />
             </button>
 
             {/* Top bar */}
@@ -644,6 +660,12 @@ export default function MapPage() {
                         toast.error(r.error);
                     }
                 }}
+            />
+            <TrainerCustomizer
+                open={showCustomizer}
+                camperId={user?.id}
+                onClose={() => setShowCustomizer(false)}
+                onSave={(c) => setAvatarColors(c)}
             />
         </div>
     );
