@@ -926,6 +926,73 @@ async def admin_delete_pokemon(pokemon_id: str, admin=Depends(get_current_admin)
     return {"ok": True}
 
 
+@api.post("/admin/pokemon/bulk-upload")
+async def admin_bulk_upload_pokemon(
+    files: List[UploadFile] = File(...),
+    rarity: str = Form("common"),
+    active: bool = Form(True),
+    featured: bool = Form(True),
+    admin=Depends(get_current_admin),
+):
+    """Upload many images at once. Each image becomes a new Pokemon whose name
+    is derived from the filename (without extension). Backgrounds are auto-stripped."""
+    if rarity not in ("common", "uncommon", "rare", "legendary"):
+        raise HTTPException(400, "Invalid rarity")
+    if not files:
+        raise HTTPException(400, "No files provided")
+
+    # Determine the next slot number once and increment locally
+    last = await db.pokemon.find_one({}, sort=[("slot_number", -1)])
+    next_slot = (last.get("slot_number", 0) if last else 0) + 1
+
+    created = []
+    failed = []
+    for f in files:
+        try:
+            if f.content_type not in ("image/jpeg", "image/png", "image/webp"):
+                failed.append({"name": f.filename, "error": "unsupported file type"})
+                continue
+            data = await f.read()
+            if not data:
+                failed.append({"name": f.filename, "error": "empty file"})
+                continue
+            if len(data) > 8 * 1024 * 1024:
+                failed.append({"name": f.filename, "error": "too large (max 8MB)"})
+                continue
+            try:
+                data = _remove_white_background(data)
+                mime = "image/png"
+            except Exception as e:
+                logger.warning(f"bulk upload bg-strip failed for {f.filename}: {e}")
+                mime = f.content_type
+            b64 = base64.b64encode(data).decode()
+            data_url = f"data:{mime};base64,{b64}"
+            # Pretty name from filename (strip extension, replace separators)
+            base_name = (f.filename or f"Pokemon {next_slot}").rsplit(".", 1)[0]
+            base_name = base_name.replace("_", " ").replace("-", " ").strip()[:40] or f"Pokemon {next_slot}"
+            doc = {
+                "id": str(uuid.uuid4()),
+                "slot_number": next_slot,
+                "name": base_name,
+                "power_level": 150 if featured else 100,
+                "rarity": rarity,
+                "description": f"Uploaded by admin on {now_utc().date().isoformat()}",
+                "image_data_url": data_url,
+                "active": bool(active),
+                "featured": bool(featured),
+                "is_seed": False,
+                "created_at": now_utc().isoformat(),
+            }
+            await db.pokemon.insert_one(doc)
+            created.append(pokemon_to_out(doc).model_dump())
+            next_slot += 1
+        except Exception as e:
+            logger.error(f"bulk upload failed for {f.filename}: {e}")
+            failed.append({"name": f.filename, "error": str(e)})
+
+    return {"created": created, "failed": failed, "created_count": len(created), "failed_count": len(failed)}
+
+
 # ----------------------
 # ADMIN - SPAWN CONFIG
 # ----------------------
