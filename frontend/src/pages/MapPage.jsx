@@ -232,13 +232,13 @@ export default function MapPage() {
                 setGeoError("");
                 setGeoBlocked(false);
                 persistPosition(loc.lat, loc.lng, pos.coords.accuracy);
-                // Always re-center the map on the camper — map only moves when they walk
-                if (mapRef.current) {
+                // Only auto-center once on the first GPS fix. After that, the
+                // camper controls the camera and only the "Locate me" button
+                // re-centers — prevents the map from constantly jumping.
+                if (mapRef.current && !locatedOnce) {
                     mapRef.current.panTo(loc);
-                    if (!locatedOnce) {
-                        mapRef.current.setZoom(19);
-                        setLocatedOnce(true);
-                    }
+                    mapRef.current.setZoom(19);
+                    setLocatedOnce(true);
                 }
             },
             (err) => {

@@ -27,6 +27,7 @@ export default function SpawnConfigTab() {
                 active_hours_end: Number(cfg.active_hours_end),
                 spawn_ttl_seconds: Number(cfg.spawn_ttl_seconds),
                 catch_radius_meters: Number(cfg.catch_radius_meters ?? 40),
+                featured_weight_multiplier: Number(cfg.featured_weight_multiplier ?? 10),
                 camp_latitude: Number(cfg.camp_latitude || 40.7128),
                 camp_longitude: Number(cfg.camp_longitude || -74.0060),
                 camp_default_zoom: Number(cfg.camp_default_zoom || 17),
@@ -140,6 +141,33 @@ export default function SpawnConfigTab() {
                                 />
                             </div>
                         ))}
+                    </div>
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-white p-4 border border-emerald-200">
+                    <Label className="text-base text-slate-900 font-bold">⭐ Featured Pokemon spawn boost</Label>
+                    <p className="text-xs text-slate-500 mb-3">
+                        How much more often "supervisor" (featured) Pokemon spawn vs regular ones. 1× = same as others. 10× = star Pokemon dominate.
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="range"
+                            min="1"
+                            max="25"
+                            step="1"
+                            value={Number(cfg.featured_weight_multiplier ?? 10)}
+                            onChange={(e) => setCfg({ ...cfg, featured_weight_multiplier: e.target.value })}
+                            className="flex-1 h-2 rounded-full accent-emerald-500"
+                            data-testid="featured-boost-slider"
+                        />
+                        <div className="w-16 text-right font-heading text-xl font-bold text-slate-900 tabular-nums" data-testid="featured-boost-value">
+                            {cfg.featured_weight_multiplier ?? 10}×
+                        </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-0.5 uppercase tracking-widest">
+                        <span>1× — Equal</span>
+                        <span>10×</span>
+                        <span>25× — Dominant</span>
                     </div>
                 </div>
 

@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 1.0, "uncommon": 0.98, "rare": 0.92, "legendary": 0.80}
+CATCH_RATES = {"common": 0.92, "uncommon": 0.78, "rare": 0.55, "legendary": 0.30}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
@@ -130,7 +130,7 @@ class SpawnConfig(BaseModel):
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     catch_rates: dict = Field(default_factory=lambda: CATCH_RATES.copy())
     catch_radius_meters: int = 40  # How close a camper must be to a spawn to catch it
-    featured_weight_multiplier: float = 4.0  # admin-marked "supervisor" pokemon spawn 4x more often
+    featured_weight_multiplier: float = 10.0  # admin-marked "supervisor" pokemon spawn 10x more often
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
     camp_default_zoom: int = 18
@@ -524,7 +524,7 @@ async def load_spawn_config() -> dict:
 
 async def pick_spawn_pokemon(cfg: dict) -> Optional[dict]:
     weights = cfg.get("rarity_weights") or DEFAULT_RARITY_WEIGHTS
-    featured_boost = float(cfg.get("featured_weight_multiplier", 4.0))
+    featured_boost = float(cfg.get("featured_weight_multiplier", 10.0))
     # Try up to 4 times to get a rarity with actual active pokemon
     for _ in range(4):
         rarity = pick_rarity(weights)
@@ -1849,6 +1849,8 @@ async def admin_seed_test_pokemon(admin=Depends(get_current_admin)):
                 "description": seed["description"],
                 "image_data_url": data_url,
                 "active": True,
+                "is_seed": True,
+                "featured": False,
             }},
         )
         return {"slot": slot["slot_number"], "ok": True, "name": seed["name"]}
