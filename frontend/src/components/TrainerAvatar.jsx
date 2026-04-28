@@ -90,34 +90,44 @@ export default function TrainerAvatar({
                 {/* Ground shadow */}
                 <ellipse cx="50" cy="115" rx="22" ry="4" fill="rgba(0,0,0,0.25)" />
 
-                {/* LEGS */}
+                {/* SHORTS (visible band of clothing) — drawn first so torso sits above */}
+                <path
+                    d="M30 82 Q30 78 50 78 Q70 78 70 82 L74 96 Q60 100 50 100 Q40 100 26 96 Z"
+                    fill={`url(#shorts-${gid})`}
+                    stroke="#0B1A4A"
+                    strokeWidth="1.4"
+                />
+
+                {/* LEGS — bare skin between shorts and shoes */}
                 <g>
                     <motion.rect
-                        x="38" y="86" width="9" height="22" rx="3"
-                        fill={`url(#shorts-${gid})`} stroke="#0B1A4A" strokeWidth="1.2"
-                        animate={walking ? { y: [86, 84, 86, 88, 86] } : {}}
+                        x="38" y="98" width="9" height="14" rx="2"
+                        fill={`url(#skin-${gid})`} stroke="#8C5A2A" strokeWidth="1"
+                        animate={walking ? { y: [98, 96, 98, 100, 98] } : {}}
                         transition={{ repeat: Infinity, duration: 0.6 }}
                     />
                     <motion.rect
-                        x="53" y="86" width="9" height="22" rx="3"
-                        fill={`url(#shorts-${gid})`} stroke="#0B1A4A" strokeWidth="1.2"
-                        animate={walking ? { y: [86, 88, 86, 84, 86] } : {}}
+                        x="53" y="98" width="9" height="14" rx="2"
+                        fill={`url(#skin-${gid})`} stroke="#8C5A2A" strokeWidth="1"
+                        animate={walking ? { y: [98, 100, 98, 96, 98] } : {}}
                         transition={{ repeat: Infinity, duration: 0.6 }}
                     />
-                    <ellipse cx="42.5" cy="111" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
-                    <ellipse cx="57.5" cy="111" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
+                    {/* Sneakers */}
+                    <ellipse cx="42.5" cy="113" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
+                    <ellipse cx="57.5" cy="113" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
                 </g>
 
-                {/* TORSO */}
+                {/* TORSO (shorter, ends at the top of the shorts) */}
                 <path
-                    d="M30 60 Q30 52 50 52 Q70 52 70 60 L72 90 Q60 95 50 95 Q40 95 28 90 Z"
+                    d="M30 60 Q30 52 50 52 Q70 52 70 60 L70 80 Q60 84 50 84 Q40 84 30 80 Z"
                     fill={`url(#shirt-${gid})`}
                     stroke="#0F4836"
                     strokeWidth="1.4"
                 />
-                <rect x="29" y="86" width="42" height="4" rx="1" fill="#0F4836" opacity="0.7" />
-                <circle cx="50" cy="72" r="6.5" fill="#FFFFFF" stroke="#0F4836" strokeWidth="1.2" />
-                <text x="50" y="75.5" textAnchor="middle" fontSize="7" fontWeight="900" fill="#0F4836" fontFamily="Arial Black, sans-serif">RR</text>
+                {/* Belt */}
+                <rect x="29" y="78" width="42" height="3" rx="1" fill="#0F4836" opacity="0.85" />
+                <circle cx="50" cy="69" r="6.5" fill="#FFFFFF" stroke="#0F4836" strokeWidth="1.2" />
+                <text x="50" y="72.5" textAnchor="middle" fontSize="7" fontWeight="900" fill="#0F4836" fontFamily="Arial Black, sans-serif">RR</text>
 
                 {/* ARMS */}
                 <motion.g
