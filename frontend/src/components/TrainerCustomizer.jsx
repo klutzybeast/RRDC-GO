@@ -51,9 +51,12 @@ function randomPick(arr) {
 export default function TrainerCustomizer({ open, onClose, camperId, onSave }) {
     const [colors, setColors] = useState(() => loadAvatarColors(camperId));
 
-    // Re-load whenever modal opens (in case other tabs changed it)
+    // Re-load whenever modal OPENS (open transitions false→true). This avoids
+    // clobbering in-progress edits if user.id arrives late from auth context.
+    const wasOpenRef = React.useRef(false);
     useEffect(() => {
-        if (open) setColors(loadAvatarColors(camperId));
+        if (open && !wasOpenRef.current) setColors(loadAvatarColors(camperId));
+        wasOpenRef.current = open;
     }, [open, camperId]);
 
     const handleSet = (part, value) => setColors((c) => ({ ...c, [part]: value }));
