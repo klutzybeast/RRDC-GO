@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 0.75, "uncommon": 0.50, "rare": 0.30, "legendary": 0.12}
+CATCH_RATES = {"common": 0.25, "uncommon": 0.333, "rare": 0.20, "legendary": 0.167}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
@@ -1263,8 +1263,39 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     wallet = await adjust_balls(user["id"], -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
 
     if not success:
-        # IMPORTANT: Pokemon does NOT flee on a miss. It stays around so the
-        # camper can keep throwing until they catch it (within their ball budget).
+        # Track misses on this spawn — flee chance escalates so the Pokemon
+        # CAN still be caught at any throw count, but might run as misses pile up.
+        misses = int(cur.get("miss_count", 0)) + 1
+        # Gentle flee scaling — most kids should still catch even legendaries.
+        # Flee starts at 0% (1st miss is "free"), grows by ~3% per subsequent miss.
+        FLEE_PER_MISS = {"common": 0.02, "uncommon": 0.025, "rare": 0.03, "legendary": 0.035}
+        FLEE_CAP = 0.30
+        flee_chance = min(FLEE_CAP, max(0.0, (misses - 1) * FLEE_PER_MISS.get(rarity, 0.03)))
+        fled = random.random() < flee_chance
+
+        if fled:
+            # Remove this spawn from the active list so the camper has to find
+            # a new one. Other spawns stay active.
+            remaining = [s for s in spawns if s and s.get("spawn_id") != cur["spawn_id"]]
+            await db.group_spawns.update_one(
+                {"group_id": user["id"]},
+                {"$set": {"current_spawns": remaining, "current_spawn": None}},
+            )
+            return CatchResult(
+                success=False,
+                message=f"{pokemon['name']} fled after {misses} miss{'es' if misses != 1 else ''}!",
+                power_rolled=wallet["balance"],
+            )
+
+        # Persist the new miss count back into the spawn doc
+        for s in spawns:
+            if s and s.get("spawn_id") == cur["spawn_id"]:
+                s["miss_count"] = misses
+                break
+        await db.group_spawns.update_one(
+            {"group_id": user["id"]},
+            {"$set": {"current_spawns": spawns}},
+        )
         return CatchResult(
             success=False,
             message=f"{pokemon['name']} dodged! Try again.",

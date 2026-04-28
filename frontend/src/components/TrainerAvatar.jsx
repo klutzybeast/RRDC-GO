@@ -90,34 +90,35 @@ export default function TrainerAvatar({
                 {/* Ground shadow */}
                 <ellipse cx="50" cy="115" rx="22" ry="4" fill="rgba(0,0,0,0.25)" />
 
-                {/* SHORTS (visible band of clothing) — drawn first so torso sits above */}
-                <path
-                    d="M30 82 Q30 78 50 78 Q70 78 70 82 L74 96 Q60 100 50 100 Q40 100 26 96 Z"
+                {/* PANTS (full-length — replaces the old shorts+bare-leg combo so
+                    no awkward orange pill gap shows). Drawn as ONE shape so it
+                    moves together when walking. */}
+                <motion.path
+                    d="M30 78 Q30 76 50 76 Q70 76 70 78 L73 110 Q60 113 50 113 Q40 113 27 110 Z"
                     fill={`url(#shorts-${gid})`}
                     stroke="#0B1A4A"
                     strokeWidth="1.4"
+                    animate={walking ? { y: [0, -1, 0, 1, 0] } : {}}
+                    transition={{ repeat: Infinity, duration: 0.6 }}
                 />
+                {/* Center seam between the two pant legs */}
+                <line x1="50" y1="86" x2="50" y2="112" stroke="#0B1A4A" strokeWidth="1" opacity="0.5" />
 
-                {/* LEGS — bare skin between shorts and shoes */}
+                {/* Sneakers — sit just below the pants */}
                 <g>
-                    <motion.rect
-                        x="38" y="98" width="9" height="14" rx="2"
-                        fill={`url(#skin-${gid})`} stroke="#8C5A2A" strokeWidth="1"
-                        animate={walking ? { y: [98, 96, 98, 100, 98] } : {}}
+                    <motion.ellipse
+                        cx="42" cy="115" rx="7" ry="3.5" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2"
+                        animate={walking ? { cy: [115, 113, 115, 117, 115] } : {}}
                         transition={{ repeat: Infinity, duration: 0.6 }}
                     />
-                    <motion.rect
-                        x="53" y="98" width="9" height="14" rx="2"
-                        fill={`url(#skin-${gid})`} stroke="#8C5A2A" strokeWidth="1"
-                        animate={walking ? { y: [98, 100, 98, 96, 98] } : {}}
+                    <motion.ellipse
+                        cx="58" cy="115" rx="7" ry="3.5" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2"
+                        animate={walking ? { cy: [115, 117, 115, 113, 115] } : {}}
                         transition={{ repeat: Infinity, duration: 0.6 }}
                     />
-                    {/* Sneakers */}
-                    <ellipse cx="42.5" cy="113" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
-                    <ellipse cx="57.5" cy="113" rx="6.5" ry="3" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.2" />
                 </g>
 
-                {/* TORSO (shorter, ends at the top of the shorts) */}
+                {/* TORSO (shorter, ends at the top of the pants at y=80) */}
                 <path
                     d="M30 60 Q30 52 50 52 Q70 52 70 60 L70 80 Q60 84 50 84 Q40 84 30 80 Z"
                     fill={`url(#shirt-${gid})`}
