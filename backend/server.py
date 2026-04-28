@@ -614,10 +614,19 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
     except Exception:
         next_at = now_utc()
 
-    # Create new spawns while we're under the cap and time allows.
-    # If under cap and below the cap, generate up to 2 immediately then stagger by interval.
+    # Decide how many to create RIGHT NOW.
+    #   - If under cap: create enough to reach min(max_active, 4) immediately so
+    #     the camper sees Pokemon as soon as they open the app.
+    #   - Then space out further spawns by min/max interval.
+    burst_target = min(max_active, 4)
+    needed = max(0, burst_target - len(current))
+    can_burst_now = now_utc() >= next_at and needed > 0
+    if not can_burst_now and now_utc() >= next_at and len(current) < max_active:
+        # Trickle one in at the scheduled time
+        needed = 1
+
     created = 0
-    while len(current) < max_active and now_utc() >= next_at and created < 3:
+    while needed > 0 and len(current) < max_active:
         pokemon = await pick_spawn_pokemon(cfg)
         if not pokemon:
             break
@@ -652,9 +661,12 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
             "pin_id": pin_id,
         }
         current.append(spawn)
+        created += 1
+        needed -= 1
+
+    if created > 0:
         gap = random.uniform(cfg["min_interval_min"], cfg["max_interval_min"])
         next_at = now_utc() + timedelta(minutes=gap)
-        created += 1
 
     await db.group_spawns.update_one(
         {"group_id": group_id},

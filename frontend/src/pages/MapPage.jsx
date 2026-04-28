@@ -5,13 +5,15 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
 import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
 import RiverBall from "../components/RiverBall";
+import TrainerAvatar from "../components/TrainerAvatar";
+import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
@@ -21,11 +23,6 @@ const rarityGlow = {
     rare: "rgba(59, 130, 246, 0.6)",
     legendary: "rgba(251, 191, 36, 0.75)",
 };
-
-const mapStyles = [
-    { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-    { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
-];
 
 const DEFAULT_CATCH_RADIUS_METERS = 40;
 
@@ -338,24 +335,34 @@ export default function MapPage() {
                     center={campCenter}
                     zoom={zoom}
                     options={{
-                        styles: mapStyles,
+                        styles: pokemonGoMapStyle,
                         disableDefaultUI: true,
                         zoomControl: false,
-                        scrollwheel: false,
+                        scrollwheel: true,
                         clickableIcons: false,
-                        draggable: false,
-                        gestureHandling: "none",
+                        draggable: true,
+                        gestureHandling: "greedy",  // pinch + drag on touch, scroll on desktop
                         keyboardShortcuts: false,
-                        disableDoubleClickZoom: true,
+                        disableDoubleClickZoom: false,
                         mapTypeId: "roadmap",
+                        minZoom: 16,
+                        maxZoom: 20,
+                        backgroundColor: "#a8e6a3",
+                        tilt: 0,
                     }}
                     onLoad={(m) => (mapRef.current = m)}
+                    onZoomChanged={() => {
+                        if (mapRef.current) setZoom(mapRef.current.getZoom());
+                    }}
                 >
                     {myLocation && (
                         <OverlayView position={myLocation} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
-                            <div className="relative" style={{ transform: "translate(-50%, -50%)" }}>
-                                <div className="w-5 h-5 rounded-full bg-river-500 border-2 border-white shadow-lg" />
-                                <div className="absolute inset-0 rounded-full bg-river-500/30 animate-ping" />
+                            <div
+                                className="relative"
+                                style={{ transform: "translate(-50%, -90%)" }}
+                                data-testid="my-location-avatar"
+                            >
+                                <TrainerAvatar size={88} walking={false} />
                             </div>
                         </OverlayView>
                     )}
@@ -434,6 +441,36 @@ export default function MapPage() {
                     })}
                 </GoogleMap>
             )}
+
+            {/* Zoom controls (Pokemon GO style stack) */}
+            <div className="absolute bottom-48 right-4 z-10 flex flex-col gap-2">
+                <button
+                    onClick={() => {
+                        if (!mapRef.current) return;
+                        const z = Math.min(20, (mapRef.current.getZoom() || 18) + 1);
+                        mapRef.current.setZoom(z);
+                        setZoom(z);
+                    }}
+                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700 hover:text-river-600"
+                    aria-label="Zoom in"
+                    data-testid="zoom-in-btn"
+                >
+                    <Plus className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => {
+                        if (!mapRef.current) return;
+                        const z = Math.max(16, (mapRef.current.getZoom() || 18) - 1);
+                        mapRef.current.setZoom(z);
+                        setZoom(z);
+                    }}
+                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700 hover:text-river-600"
+                    aria-label="Zoom out"
+                    data-testid="zoom-out-btn"
+                >
+                    <Minus className="w-5 h-5" />
+                </button>
+            </div>
 
             {/* Locate me FAB */}
             <button
