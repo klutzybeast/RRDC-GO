@@ -71,6 +71,23 @@ export default function MapPage() {
         setTimeout(() => setBallDelta(null), 1500);
     };
 
+    const lastLocRef = useRef(null);
+    const [isWalking, setIsWalking] = useState(false);
+    useEffect(() => {
+        if (!myLocation) return;
+        if (lastLocRef.current) {
+            const moved = metersBetween(lastLocRef.current, myLocation);
+            if (moved >= 1) {
+                setIsWalking(true);
+                clearTimeout(lastLocRef.current._stopTimer);
+                const t = setTimeout(() => setIsWalking(false), 2500);
+                lastLocRef.current = { ...myLocation, _stopTimer: t };
+                return;
+            }
+        }
+        lastLocRef.current = { ...myLocation };
+    }, [myLocation?.lat, myLocation?.lng]);
+
     // Auto-claim daily bonus on mount
     useEffect(() => {
         if (wallet?.can_claim_daily) {
@@ -362,7 +379,7 @@ export default function MapPage() {
                                 style={{ transform: "translate(-50%, -90%)" }}
                                 data-testid="my-location-avatar"
                             >
-                                <TrainerAvatar size={88} walking={false} />
+                                <TrainerAvatar size={88} walking={isWalking} />
                             </div>
                         </OverlayView>
                     )}
