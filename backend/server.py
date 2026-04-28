@@ -678,10 +678,13 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
                 pin_name = "Camp"
 
         ttl = int(cfg.get("spawn_ttl_seconds", 600))
+        # Store a SLIM pokemon (no image) to avoid blowing past Mongo's 16MB
+        # document size limit. The image is re-attached when serving the spawn.
+        slim_pokemon = {k: v for k, v in pokemon.items() if k != "image_data_url"}
         spawn = {
             "spawn_id": str(uuid.uuid4()),
             "pokemon_id": pokemon["id"],
-            "pokemon": pokemon,
+            "pokemon": slim_pokemon,
             "started_at": now_utc().isoformat(),
             "expires_at": (now_utc() + timedelta(seconds=ttl)).isoformat(),
             "latitude": lat,
@@ -1205,11 +1208,21 @@ async def spawn_current(
         enabled=bool(cfg.get("enabled", True)),
         max_active_spawns=int(cfg.get("max_active_spawns", 5)),
     )
-    for cur in (state.get("current_spawns") or []):
+    spawns_list = state.get("current_spawns") or []
+    # Bulk-fetch images for all referenced pokemon at once (we don't store images
+    # in the spawn doc to stay under Mongo's 16MB doc limit).
+    pids = [s.get("pokemon_id") for s in spawns_list if s.get("pokemon_id")]
+    image_by_id = {}
+    if pids:
+        async for p in db.pokemon.find({"id": {"$in": pids}}, {"_id": 0, "id": 1, "image_data_url": 1}):
+            image_by_id[p["id"]] = p.get("image_data_url", "")
+    for cur in spawns_list:
         try:
+            poke = dict(cur["pokemon"])
+            poke["image_data_url"] = image_by_id.get(cur.get("pokemon_id"), poke.get("image_data_url", ""))
             resp.spawns.append(CurrentSpawn(
                 spawn_id=cur["spawn_id"],
-                pokemon=pokemon_to_out(cur["pokemon"]),
+                pokemon=pokemon_to_out(poke),
                 started_at=datetime.fromisoformat(cur["started_at"]),
                 expires_at=datetime.fromisoformat(cur["expires_at"]),
                 latitude=cur.get("latitude"),
