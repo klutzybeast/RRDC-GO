@@ -166,11 +166,11 @@ export default function ARFallbackScene({ ambient }) {
                     className="absolute rounded-full"
                     style={{
                         top: "11%",
-                        right: "14%",
+                        left: "12%",
                         width: 78,
                         height: 78,
                         background: "radial-gradient(circle at 35% 30%, #FFF8E0 0%, #E8E2C1 60%, #B8B597 100%)",
-                        boxShadow: "0 0 70px rgba(255, 248, 224, 0.45)",
+                        boxShadow: "0 0 70px rgba(255, 248, 224, 0.35)",
                     }}
                 />
             )}
@@ -322,35 +322,6 @@ export default function ARFallbackScene({ ambient }) {
                     <path d="M0 70 Q 200 30 400 55 T 800 50 L 800 90 Q 600 75 400 80 T 0 95 Z" fill="#FFFFFF" opacity="0.9" />
                 )}
             </svg>
-
-            {/* Pokestop-style pillar in the distance */}
-            <motion.div
-                className="absolute"
-                style={{ left: "20%", bottom: "44%", width: 32, height: 60, opacity: isDay ? 1 : 0.85 }}
-                animate={{ y: [0, -2, 0] }}
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-            >
-                <svg viewBox="0 0 32 60" width="100%" height="100%">
-                    <rect x="13" y="18" width="6" height="38" fill="#94A3B8" />
-                    <circle cx="16" cy="14" r="13" fill="#3B82F6" stroke="#1E40AF" strokeWidth="2" />
-                    <circle cx="16" cy="14" r="6" fill="#FFFFFF" opacity="0.9" />
-                    <ellipse cx="13" cy="11" rx="3" ry="2" fill="#FFFFFF" />
-                </svg>
-            </motion.div>
-
-            {/* Tiny gym tower on the right */}
-            <motion.div
-                className="absolute"
-                style={{ right: "18%", bottom: "46%", width: 40, height: 70, opacity: isDay ? 1 : 0.9 }}
-                animate={{ y: [0, -3, 0] }}
-                transition={{ repeat: Infinity, duration: 3.5, ease: "easeInOut", delay: 0.6 }}
-            >
-                <svg viewBox="0 0 40 70" width="100%" height="100%">
-                    <rect x="14" y="25" width="12" height="40" fill="#64748B" />
-                    <polygon points="20,4 6,28 34,28" fill="#F472B6" stroke="#9D174D" strokeWidth="2" />
-                    <circle cx="20" cy="22" r="4" fill="#FFFFFF" />
-                </svg>
-            </motion.div>
 
             {/* Soft vignette to focus attention center */}
             <div
