@@ -4,6 +4,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import hashlib
 import uuid
 import math
 import random
@@ -2746,8 +2747,12 @@ def _today_start_iso() -> str:
 
 def _pick_daily_challenges(camper_id: str, ymd: str) -> List[dict]:
     """Deterministic mix: 1 easy + 1 medium + 1 hard. Same camper+date always
-    gets the same 3 challenges so reloads don't reshuffle them."""
-    seed = hash((camper_id, ymd)) & 0xFFFFFFFF
+    gets the same 3 challenges so reloads don't reshuffle them.
+
+    Uses sha1 instead of Python's hash() because hash() is salted per process
+    (PYTHONHASHSEED), which would reshuffle on every backend restart."""
+    seed_bytes = hashlib.sha1(f"{camper_id}|{ymd}".encode()).digest()
+    seed = int.from_bytes(seed_bytes[:8], "big", signed=False)
     rng = random.Random(seed)
     by_tier = {"easy": [], "medium": [], "hard": []}
     for c in CHALLENGE_TEMPLATES:

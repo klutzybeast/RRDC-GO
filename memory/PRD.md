@@ -296,3 +296,28 @@ Implementation:
 ### Backend test pass: 9/9
 - Wallet shape, ball-type substitution, milestone rewards (correct ball, correct rarity threshold), Pokemon type CRUD round-trip, bulk upload `types` array, GET /bank returning type — all verified.
 
+
+---
+
+## Iteration 13 — Daily Challenges + "Other Pokemon" strip on AR (2026-04-29)
+
+### Daily Challenges
+- 15 hand-tuned challenge templates spanning easy / medium / hard. Each camper gets 1 of each tier, picked deterministically from `sha1(camper_id|ymd)` so the same person always sees the same 3 today, and a new mix tomorrow at midnight.
+- Templates cover: total catches today, catches by rarity (uncommon/rare/legendary), featured supervisor catch, throw count, fancy-ball use, walking distance, pin claim, distinct-types-caught (2 or 3).
+- Progress is computed live at read-time from existing collections (`catches`, `ball_ledger`, `camper_positions`) — no separate counter to fall out of sync.
+- `POST /challenges/{id}/claim` awards Pokeballs into the wallet (`adjust_ball(..., reason="challenge_complete")`) so the existing ledger system handles audit + double-claim guard.
+- Frontend `ChallengesCard` — pill on the map (top-right) shows a "N ready" badge when complete. Tap opens a modal with progress bars, tier chips, and per-row "Claim +N balls" button.
+
+### "Also nearby" strip on AR
+- The AR page now keeps the full active spawn list and renders OTHER spawns as a horizontal thumbnail strip above the BallSelector. Each thumb is rarity-ringed (slate/emerald/river/amber). Tapping switches the active target without leaving the AR page.
+- `switchToSpawn()` resets miss count and re-announces the new Pokémon. Polling honors the new active spawn id so it doesn't bounce back.
+
+### Process-restart determinism (testing-agent feedback)
+- Replaced `hash((camper_id, ymd))` with `sha1(camper_id|ymd)[:8]` because Python's hash() is salted per process via `PYTHONHASHSEED`. Now backend restarts (deploys, scaling, restarts) keep the same 3 challenges for the day. Verified via 3 sequential `/challenges/today` calls returning identical id sets.
+
+### Backlog unchanged
+- Refactor 2900-line `server.py` into `/app/backend/routers/`.
+- "Stationary kid >15 min" alert on admin Live Map.
+- Camper position trail on Live Map.
+- Type-effectiveness twist (myrtleball vs grass etc).
+
