@@ -380,7 +380,7 @@ export default function ARPage() {
                     )}
                     {spawn && (
                         <>
-                            <BallSelector
+                            <BallSwitcher
                                 selected={selectedBall}
                                 onSelect={setSelectedBall}
                                 balances={wallet?.balances || {}}

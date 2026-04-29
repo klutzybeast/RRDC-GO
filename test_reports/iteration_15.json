@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 15 — frontend-only verification of (1) MapPage NearbyPanel pill+modal and (2) ARPage compact BallSwitcher. Found one CRITICAL regression in ARPage (caught and fixed): line 383 still referenced <BallSelector> while the import was renamed to BallSwitcher, causing 'BallSelector is not defined' runtime error on every AR page load. After applying the trivial component-name fix, all flows pass on mobile viewport (414x896): camper login → group B01 → first camper, NearbyPanel pill 'Nearby 5' visible, modal opens with 5 spawns in 2-col grid (silhouettes for un-caught with NEW badge, In-Range emerald border, distance in m), close-nearby works, no old standalone ball icon on map. AR launch (?spawn=...) renders ball-switcher-btn 'Pokeball × 278 ⌃', modal lists pokeball=278 (owned), rayball=0 (locked), myrtleball=1 (owned), lunchball=0 (locked); X close, outside-overlay click, and ball selection all dismiss modal. Challenges pill and wallet HUD still render. Zero React/console errors after fix.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ARPage", "issue": "FIXED by tester — ARPage.jsx line 383 still rendered <BallSelector …/> after main agent renamed the import to BallSwitcher. Caused 'ReferenceError: BallSelector is not defined' breaking the entire AR/catch flow. One-token rename to <BallSwitcher (props are API-compatible).", "selector": "[data-testid=\"ball-switcher-btn\"]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Tester already applied the trivial fix (BallSelector → BallSwitcher in ARPage.jsx:383). Main agent should review and verify no other dangling BallSelector references remain in repo (BallSelector.jsx still exists at /app/frontend/src/components/BallSelector.jsx — consider deleting or keeping as dead code; lint may flag unused).",
+    "Optional cleanup: remove the now-unused /app/frontend/src/components/BallSelector.jsx file if it is no longer imported anywhere."
+  ],
+  "critical_code_review_comments": [
+    "BallSwitcher.jsx — clean, accessible (aria-label on trigger, X close), restricts onSelect to owned balls (count>0), handles outside-click & X close. Looks production-ready.",
+    "NearbyPanel.jsx — silhouette implementation via `filter: brightness(0) saturate(100%)` is correct and only applied when seenIds set excludes the pokemon id; useEffect on bank fetch is properly cancellable; sorts by haversine distance; 'NEW' badge driven by bank cross-reference. 'X new' badge in pill mirrors that count. Solid.",
+    "MapPage.jsx — old standalone ball icon was removed; only NearbyPanel and ChallengesCard render in the top action row. No regression to existing testids (challenges-pill, hud-status).",
+    "Repo still contains /app/frontend/src/components/BallSelector.jsx — dead code candidate; safe to delete or leave."
+  ],
+  "updated_files": ["/app/frontend/src/pages/ARPage.jsx"],
+  "success_rate": {"backend": "n/a (frontend-only)", "frontend": "100% on tested flows after the BallSelector→BallSwitcher fix"},
+  "test_credentials": "Camper: B01 group, first camper (no password). Geolocation mocked via Playwright context to (41.123, -74.456) which the backend snaps to camp center, yielding 5 in-range spawns.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "To exercise AR flow you must (a) grant geolocation permission BEFORE goto, (b) login B01 → first camper, (c) dismiss multi-step onboarding by clicking 'Next' a few times, (d) press the bottom 'Catch Pokemon Slot #1!' button to navigate to /ar?spawn=<id>. Otherwise direct /ar route shows 'Returning to map…' panel and BallSwitcher won't render. Ball counts at test time: pokeball=278, myrtleball=1, others=0. Old BallSelector.jsx file still exists; not imported by ARPage anymore.",
+  "rca of the issue": "Main agent introduced BallSwitcher.jsx and replaced the import in ARPage.jsx (line 11) but left the JSX usage on line 383 referencing the old <BallSelector …/>. Because BallSelector was no longer imported, React threw 'ReferenceError: BallSelector is not defined' the moment a spawn was active and the bottom area tried to render. Reproduction: login as any camper with at least one in-range spawn, tap 'Catch Pokemon Slot #N!' on map → AR page mounts → red error overlay. Fix: rename JSX tag to <BallSwitcher (API-compatible, identical props selected/onSelect/balances/earnProgress)."
+}
