@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { UserAuthProvider, AdminAuthProvider, useUserAuth, useAdminAuth } from "@/contexts/AuthContext";
 import { GoogleMapsProvider } from "@/contexts/GoogleMapsContext";
 import LoginPage from "@/pages/LoginPage";
+import LandingPage from "@/pages/LandingPage";
 import MapPage from "@/pages/MapPage";
 import ARPage from "@/pages/ARPage";
 import CollectionPage from "@/pages/CollectionPage";
@@ -14,7 +15,7 @@ import { Toaster } from "sonner";
 function UserRoute({ children }) {
     const { user } = useUserAuth();
     if (user === undefined) return <LoadingScreen />;
-    if (!user) return <Navigate to="/" replace />;
+    if (!user) return <Navigate to="/login" replace />;
     return children;
 }
 
@@ -41,7 +42,8 @@ export default function App() {
                     <GoogleMapsProvider>
                         <BrowserRouter>
                             <Routes>
-                                <Route path="/" element={<LoginPage />} />
+                                <Route path="/" element={<LandingPage />} />
+                                <Route path="/login" element={<LoginPage />} />
                                 <Route path="/map" element={<UserRoute><MapPage /></UserRoute>} />
                                 <Route path="/ar" element={<UserRoute><ARPage /></UserRoute>} />
                                 <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
