@@ -159,7 +159,7 @@ export default function LandingPage() {
                         backgroundPosition: "center",
                     }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/40 to-slate-900" />
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-900/55 via-slate-900/65 to-slate-900" />
 
                 {/* Floating decorative balls */}
                 <FloatingBall ballId="pokeball"   top="14%" left="8%"  delay={0} size={64} />
@@ -182,10 +182,10 @@ export default function LandingPage() {
                         transition={{ type: "spring", bounce: 0.5, duration: 1 }}
                         data-testid="landing-logo"
                     />
-                    <p className="text-lg sm:text-2xl text-white/90 mb-2 font-semibold" style={{ textShadow: "0 2px 12px rgba(0,0,0,0.6)" }}>
+                    <p className="text-lg sm:text-2xl text-white mb-2 font-semibold drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)]" style={{ textShadow: "0 2px 16px rgba(0,0,0,0.85), 0 1px 4px rgba(0,0,0,0.95)" }}>
                         Catch Pokémon all over Rolling River.
                     </p>
-                    <p className="text-base sm:text-lg text-white/70 mb-10 max-w-xl mx-auto leading-relaxed">
+                    <p className="text-base sm:text-lg text-white mb-10 max-w-xl mx-auto leading-relaxed drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]" style={{ textShadow: "0 2px 12px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.95)" }}>
                         An augmented-reality treasure hunt designed for camp days. Walk, find,
                         throw, collect. Daily challenges, supervisor Pokémon, and 4 kinds of balls
                         to earn.
@@ -397,21 +397,6 @@ export default function LandingPage() {
                 <div className="font-heading text-base text-white/70 font-bold mb-2">RRDC GO</div>
                 <div>Built for Rolling River Day Camp · {new Date().getFullYear()}</div>
             </footer>
-
-            {/* Sticky bottom Play Now (mobile-only, never blocks) */}
-            <div className="fixed bottom-4 left-4 right-4 z-40 sm:hidden pointer-events-none">
-                <motion.button
-                    initial={{ y: 80, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 1.2, type: "spring" }}
-                    onClick={() => nav("/login")}
-                    className="w-full pointer-events-auto inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-amber-400 text-slate-900 font-heading text-lg font-black shadow-2xl"
-                    data-testid="sticky-play-now"
-                >
-                    <CampBall ballId="pokeball" size={26} animate={false} />
-                    Play Now
-                </motion.button>
-            </div>
         </div>
     );
 }

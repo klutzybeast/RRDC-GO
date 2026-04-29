@@ -97,7 +97,7 @@ export default function LoginPage() {
                                     <div className="flex items-center justify-between mb-4">
                                         <div>
                                             <h2 className="font-heading text-2xl sm:text-3xl font-bold text-slate-900">Pick your group</h2>
-                                            <p className="text-sm text-slate-700">Tap your bunk, then your name.</p>
+                                            <p className="text-sm text-slate-700">Tap your group, then your name.</p>
                                         </div>
                                         <div className="text-xs font-bold uppercase tracking-widest text-slate-500 bg-white/60 rounded-full px-3 py-1" data-testid="group-count-badge">
                                             {groups ? `${groups.length} groups` : "…"}
