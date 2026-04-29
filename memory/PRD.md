@@ -256,3 +256,43 @@ The user's reference screenshot was Pokémon GO's night scene (dark navy sky, fo
 - AdvancedMarkerElement migration.
 - Camper "stationary >15 min" alert on admin Live Map (safety signal).
 
+
+---
+
+## Iteration 12 — Pokemon types + 4 ball variants + spiral throw (2026-04-29)
+
+### Pokemon types (11)
+Added `type` field to the Pokemon model and surfaced it everywhere:
+`normal | fire | water | grass | electric | rock | psychic | dark | ice | ghost | fighting`.
+Each type has its own colored badge (with emoji icon) shown in:
+- AR spawn card
+- CatchSuccessModal
+- CollectionPage cards + detail modal
+- Admin Pokemon list cards
+- Admin Pokemon edit dialog (new Type Select)
+- Admin Bulk-upload row (per-image Type Select; new `types` form-array)
+
+### Four ball variants
+| Ball | Multiplier | How earned |
+|---|---|---|
+| `pokeball` | 1.0× | 200 starter, +1/uncommon, +2/rare, +5 daily, +5/pin |
+| `rayball` | 1.4× | every **5 uncommons** caught |
+| `myrtleball` | 1.8× | every **3 rares** caught |
+| `lunchball` | 2.5× | every **1 legendary** caught |
+
+Implementation:
+- New `wallet.balances` dict (per-ball counts). `wallet.balance` kept as a legacy mirror of pokeball.
+- `adjust_ball(ball_type, delta, ...)` + back-compat `adjust_balls()` alias.
+- `POST /spawn/catch` accepts `ball_type` and applies `BALL_CATCH_MULT` to the rarity catch rate (capped at 0.97). Auto-falls back to pokeball if camper is out of the chosen ball.
+- Milestone rewards calculated on every successful catch — count of catches of that rarity since the last milestone-ledger entry. Surfaced in `CatchSuccessModal` via `ball_rewards` and toasted in real time.
+- `GET /wallet` returns `earn_progress` so the UI can show "2/3 rares" under each locked fancy ball.
+
+### Spiral throw animation
+- New `BallSelector` component above the throw ball — 4 round buttons with the live count under each. Locked balls show grayscale with a "X/N rarity" progress hint.
+- Tap-or-swipe-up on the ball still works; ball flies in a slight curving arc with rotation accelerating to **1620°** total over 0.85s, scale 1→0.22, with x jitter for a "spin" feel.
+- Auto-selects the fanciest ball the camper actually owns when wallet first loads.
+- Existing `RiverBall` import kept as a thin wrapper around `CampBall` — no breakage.
+
+### Backend test pass: 9/9
+- Wallet shape, ball-type substitution, milestone rewards (correct ball, correct rarity threshold), Pokemon type CRUD round-trip, bulk upload `types` array, GET /bank returning type — all verified.
+
