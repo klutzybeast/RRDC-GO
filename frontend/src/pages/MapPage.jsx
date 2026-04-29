@@ -16,6 +16,7 @@ import TrainerAvatar from "../components/TrainerAvatar";
 import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
 import SupervisorChallenge from "../components/SupervisorChallenge";
 import ChallengesCard from "../components/ChallengesCard";
+import NearbyPanel from "../components/NearbyPanel";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -585,10 +586,16 @@ export default function MapPage() {
                 </div>
             </div>
 
-            {/* Supervisor challenge banner + Daily challenges */}
+            {/* Supervisor challenge banner + Daily challenges + Nearby */}
             <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto space-y-2">
                 <SupervisorChallenge compact />
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2 flex-wrap">
+                    <NearbyPanel
+                        spawns={spawns}
+                        myLocation={myLocation}
+                        catchRadius={catchRadius}
+                        onPick={openCatchFor}
+                    />
                     <ChallengesCard onRewardClaimed={() => refreshWallet()} />
                 </div>
             </div>

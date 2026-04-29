@@ -122,7 +122,6 @@ export default function ARPage() {
             }
             if (chosen && !announcedRef.current) {
                 announcedRef.current = true;
-                toast.success(`A wild ${chosen.pokemon.name} appeared!`, { duration: 3500 });
                 if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -338,13 +337,6 @@ export default function ARPage() {
                             title={cameraOn ? "Turn camera off" : "Turn camera on"}
                         >
                             {cameraOn ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
-                        </button>
-                        <button
-                            onClick={() => nav("/collection")}
-                            className="glass-dark rounded-full px-3 py-2 text-sm font-bold flex items-center gap-2"
-                            data-testid="open-collection-btn"
-                        >
-                            <BackpackIcon className="w-4 h-4" /> Pokedex
                         </button>
                         <button
                             onClick={handleLogout}
