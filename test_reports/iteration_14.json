@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 14 (4-period challenges) verified end-to-end. Backend: 17/17 pytest passed — shape, counts (D=6, W=6, M=7, E=1), tier distribution (2/2/2, 2/2/2, 1/3/3), period keys (YYYY-MM-DD, YYYY-Www, YYYY-MM, all-time), determinism, /challenges/today back-compat, claim 404/400 paths, expert sequence advancement (e_first → e_50 after one ledger entry, empty after 12). Frontend: pill, modal, all 4 tabs, all data-testids, per-tab footer copy, claim buttons, monthly scroll all confirmed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/challenges", "issue": "ready_to_claim correctly counted from completed && !claimed, but expert.challenges[].claimed field is computed via _was_claimed without the period_key filter (period=='expert' branch in _was_claimed correctly skips period_key) — works as intended; documenting."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/map first session", "issues": ["Pre-existing: location-permission toast 'Try again' overlay sits very close to the challenges-pill on devices that deny GPS; doesn't block clicks but is visually crowded. Not new in iter14."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14.py",
+    "/app/test_reports/pytest/iteration14_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_pick_period_challenges seeds with hashlib.sha1(camper_id|period|period_key) — good, fixes iter13 PYTHONHASHSEED issue.",
+    "Daily pool: kind 'pin_claim' (d_pin) has _challenge_progress branch that returns 0 always (no ledger lookup for pin claims) — confirm pin event source is wired so this challenge can ever complete.",
+    "_challenge_progress walk_meters for weekly/monthly aggregates db.camper_distance_daily — make sure that collection has documents indexed by date string >= cutoff_iso prefix; cutoff is full ISO timestamp while doc dates may be 'YYYY-MM-DD' strings. Worth a quick inspection if walk_meters challenges appear stuck.",
+    "POST /challenges/{id}/claim hard-codes adjust_ball(..., 'pokeball', reward) — every period rewards only pokeballs. If product wants tier rewards (uncommon/rare for hard tiers) it would need extension; not in spec.",
+    "ChallengesCard polls every 30s; fine for now."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration14.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% on tested flows"},
+  "test_credentials": "admin/Camp1993; B01 first camper (Colton Ahern) used for FE; B01 idx 0 + idx 1 for BE.",
+  "seed_data_creation": "Inserted/cleaned synthetic ball_ledger entries for camper_a in TestExpertSequence (period=expert, reason=challenge_complete) — cleaned up at end of class.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file at /app/backend/tests/test_iteration14.py covers all 4 buckets, determinism, back-compat /challenges/today, claim 400/404 and expert sequence (DB-direct simulation). To exercise the full HTTP claim path you'd need to actually trigger a completion — most kinds (catch_total/throw_count/walk_meters) require successful catches or distance docs. The expert simulation uses MongoClient(MONGO_URL) loaded via dotenv from /app/backend/.env. Frontend onboarding has multiple 'Next' steps then auto-dismisses; press Next a few times to reveal the pill. Pill text format: 'Challenges{N} ready' (amber animate-pulse) when ready>0 else 'Challenges{N} available'. Footer copy is exact match per tab. Monthly scroll verified (scrollHeight 974 vs clientHeight 633 at 430x932).",
+  "rca of the issue": "No bugs found. Iter13 minor (non-deterministic hash) is FIXED by hashlib.sha1 seed in _seeded_rng."
+}

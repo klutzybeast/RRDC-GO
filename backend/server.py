@@ -2707,30 +2707,69 @@ async def admin_fix_backgrounds_status(admin=Depends(get_current_admin)):
 
 
 # ----------------------
-# DAILY CHALLENGES
-# Templated challenges generated deterministically per (camper, date). Three
-# per day, mix of easy/medium/hard. Progress is computed at read-time from
-# the day's catches/throws, no separate counter needed. Claim awards
-# pokeballs into the wallet.
+# CHALLENGES (Daily / Weekly / Monthly / Expert)
+# Templates per period, picked deterministically from sha1(camper_id|key).
+# Daily key = YYYY-MM-DD, Weekly = ISO YYYY-WW, Monthly = YYYY-MM. Expert is a
+# fixed sequence — kid sees ONE expert challenge at a time and only advances
+# once they claim it.
 # ----------------------
 CHALLENGE_TEMPLATES = [
-    # id, label, target, reward (pokeballs), tier
-    {"id": "catch_3_today",     "label": "Catch any 3 Pokemon today",       "target": 3,  "reward": 10, "tier": "easy",   "kind": "catch_total"},
-    {"id": "catch_5_today",     "label": "Catch any 5 Pokemon today",       "target": 5,  "reward": 20, "tier": "medium", "kind": "catch_total"},
-    {"id": "catch_8_today",     "label": "Catch 8 Pokemon today",           "target": 8,  "reward": 40, "tier": "hard",   "kind": "catch_total"},
-    {"id": "catch_uncommon",    "label": "Catch an uncommon Pokemon",       "target": 1,  "reward": 8,  "tier": "easy",   "kind": "catch_rarity", "rarity": "uncommon"},
-    {"id": "catch_rare",        "label": "Catch a rare Pokemon",            "target": 1,  "reward": 15, "tier": "medium", "kind": "catch_rarity", "rarity": "rare"},
-    {"id": "catch_legendary",   "label": "Catch a LEGENDARY",               "target": 1,  "reward": 50, "tier": "hard",   "kind": "catch_rarity", "rarity": "legendary"},
-    {"id": "catch_supervisor",  "label": "Catch a featured supervisor",     "target": 1,  "reward": 12, "tier": "medium", "kind": "catch_featured"},
-    {"id": "throw_10",          "label": "Throw 10 Rolling River Balls",    "target": 10, "reward": 6,  "tier": "easy",   "kind": "throw_count"},
-    {"id": "throw_20",          "label": "Throw 20 balls today",            "target": 20, "reward": 15, "tier": "medium", "kind": "throw_count"},
-    {"id": "use_fancy_ball",    "label": "Catch one with a fancy ball",     "target": 1,  "reward": 12, "tier": "medium", "kind": "use_fancy_ball"},
-    {"id": "walk_500m",         "label": "Walk 500m around camp",           "target": 500, "reward": 8, "tier": "easy",   "kind": "walk_meters"},
-    {"id": "walk_1500m",        "label": "Walk 1500m today",                "target": 1500,"reward": 25,"tier": "hard",   "kind": "walk_meters"},
-    {"id": "claim_pin",         "label": "Find and claim a camp pin",       "target": 1,  "reward": 5,  "tier": "easy",   "kind": "pin_claim"},
-    {"id": "two_types",         "label": "Catch 2 different types today",   "target": 2,  "reward": 12, "tier": "medium", "kind": "distinct_types"},
-    {"id": "three_types",       "label": "Catch 3 different types today",   "target": 3,  "reward": 25, "tier": "hard",   "kind": "distinct_types"},
+    # DAILY (15)
+    {"id": "d_catch_3",        "label": "Catch any 3 Pokemon today",       "target": 3,  "reward": 10, "tier": "easy",   "kind": "catch_total",     "period": "daily"},
+    {"id": "d_catch_5",        "label": "Catch any 5 Pokemon today",       "target": 5,  "reward": 20, "tier": "medium", "kind": "catch_total",     "period": "daily"},
+    {"id": "d_catch_8",        "label": "Catch 8 Pokemon today",           "target": 8,  "reward": 40, "tier": "hard",   "kind": "catch_total",     "period": "daily"},
+    {"id": "d_uncommon",       "label": "Catch an uncommon Pokemon",       "target": 1,  "reward": 8,  "tier": "easy",   "kind": "catch_rarity",    "rarity": "uncommon",  "period": "daily"},
+    {"id": "d_rare",           "label": "Catch a rare Pokemon",            "target": 1,  "reward": 15, "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "daily"},
+    {"id": "d_legendary",      "label": "Catch a LEGENDARY",               "target": 1,  "reward": 50, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "daily"},
+    {"id": "d_supervisor",     "label": "Catch a featured supervisor",     "target": 1,  "reward": 12, "tier": "medium", "kind": "catch_featured",  "period": "daily"},
+    {"id": "d_throw_10",       "label": "Throw 10 Rolling River Balls",    "target": 10, "reward": 6,  "tier": "easy",   "kind": "throw_count",     "period": "daily"},
+    {"id": "d_throw_20",       "label": "Throw 20 balls today",            "target": 20, "reward": 15, "tier": "medium", "kind": "throw_count",     "period": "daily"},
+    {"id": "d_use_fancy",      "label": "Catch one with a fancy ball",     "target": 1,  "reward": 12, "tier": "medium", "kind": "use_fancy_ball",  "period": "daily"},
+    {"id": "d_walk_500",       "label": "Walk 500m around camp",           "target": 500, "reward": 8, "tier": "easy",   "kind": "walk_meters",     "period": "daily"},
+    {"id": "d_walk_1500",      "label": "Walk 1500m today",                "target": 1500,"reward": 25,"tier": "hard",   "kind": "walk_meters",     "period": "daily"},
+    {"id": "d_pin",            "label": "Find and claim a camp pin",       "target": 1,  "reward": 5,  "tier": "easy",   "kind": "pin_claim",       "period": "daily"},
+    {"id": "d_two_types",      "label": "Catch 2 different types today",   "target": 2,  "reward": 12, "tier": "medium", "kind": "distinct_types",  "period": "daily"},
+    {"id": "d_three_types",    "label": "Catch 3 different types today",   "target": 3,  "reward": 25, "tier": "hard",   "kind": "distinct_types",  "period": "daily"},
+
+    # WEEKLY (10)
+    {"id": "w_catch_20",       "label": "Catch 20 Pokemon this week",      "target": 20, "reward": 30,  "tier": "easy",   "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_catch_40",       "label": "Catch 40 Pokemon this week",      "target": 40, "reward": 80,  "tier": "medium", "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_catch_60",       "label": "Catch 60 Pokemon this week",      "target": 60, "reward": 140, "tier": "hard",   "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_5_rares",        "label": "Catch 5 rare Pokemon this week",  "target": 5,  "reward": 75,  "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "weekly"},
+    {"id": "w_2_legendary",    "label": "Catch 2 legendaries this week",   "target": 2,  "reward": 120, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "weekly"},
+    {"id": "w_walk_5km",       "label": "Walk 5 km this week",             "target": 5000,"reward": 40, "tier": "easy",   "kind": "walk_meters",     "period": "weekly"},
+    {"id": "w_walk_10km",      "label": "Walk 10 km this week",            "target": 10000,"reward": 90,"tier": "medium", "kind": "walk_meters",     "period": "weekly"},
+    {"id": "w_5_types",        "label": "Catch 5 different types this week","target": 5, "reward": 60,  "tier": "medium", "kind": "distinct_types",  "period": "weekly"},
+    {"id": "w_10_supervisors", "label": "Catch 10 supervisors this week",  "target": 10, "reward": 100, "tier": "hard",   "kind": "catch_featured",  "period": "weekly"},
+    {"id": "w_fancy_10",       "label": "Use 10 fancy balls this week",    "target": 10, "reward": 80,  "tier": "medium", "kind": "use_fancy_ball",  "period": "weekly"},
+
+    # MONTHLY (8)
+    {"id": "m_catch_100",      "label": "Catch 100 Pokemon this month",    "target": 100,  "reward": 100, "tier": "easy",   "kind": "catch_total",    "period": "monthly"},
+    {"id": "m_catch_200",      "label": "Catch 200 Pokemon this month",    "target": 200,  "reward": 250, "tier": "medium", "kind": "catch_total",    "period": "monthly"},
+    {"id": "m_5_legendaries",  "label": "Catch 5 legendaries this month",  "target": 5,    "reward": 400, "tier": "hard",   "kind": "catch_rarity",   "rarity": "legendary", "period": "monthly"},
+    {"id": "m_25_distinct",    "label": "Catch 25 different Pokemon",      "target": 25,   "reward": 300, "tier": "hard",   "kind": "distinct_pokemon","period": "monthly"},
+    {"id": "m_walk_30km",      "label": "Walk 30 km this month",           "target": 30000,"reward": 250, "tier": "medium", "kind": "walk_meters",    "period": "monthly"},
+    {"id": "m_50_supervisors", "label": "Catch 50 supervisors this month", "target": 50,   "reward": 400, "tier": "hard",   "kind": "catch_featured", "period": "monthly"},
+    {"id": "m_8_types",        "label": "Catch 8 different types",         "target": 8,    "reward": 200, "tier": "medium", "kind": "distinct_types", "period": "monthly"},
+    {"id": "m_fancy_25",       "label": "Use 25 fancy balls this month",   "target": 25,   "reward": 200, "tier": "medium", "kind": "use_fancy_ball", "period": "monthly"},
+
+    # EXPERT (12) — sequential. Kid sees ONE at a time, advancing on claim.
+    {"id": "e_first",          "label": "Catch your very first Pokemon",   "target": 1,    "reward": 5,   "tier": "easy",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_50",             "label": "Catch 50 Pokemon (lifetime)",     "target": 50,   "reward": 50,  "tier": "easy",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_first_rare",     "label": "Catch your first rare",           "target": 1,    "reward": 20,  "tier": "easy",   "kind": "catch_rarity",    "rarity": "rare",      "period": "expert"},
+    {"id": "e_first_leg",      "label": "Catch your first LEGENDARY",      "target": 1,    "reward": 100, "tier": "medium", "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
+    {"id": "e_200",            "label": "Catch 200 Pokemon (lifetime)",    "target": 200,  "reward": 150, "tier": "medium", "kind": "catch_total",     "period": "expert"},
+    {"id": "e_5_types",        "label": "Catch 5 different types ever",    "target": 5,    "reward": 100, "tier": "medium", "kind": "distinct_types",  "period": "expert"},
+    {"id": "e_500",            "label": "Catch 500 Pokemon (lifetime)",    "target": 500,  "reward": 300, "tier": "hard",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_10_types",       "label": "Catch 10 different types ever",   "target": 10,   "reward": 250, "tier": "hard",   "kind": "distinct_types",  "period": "expert"},
+    {"id": "e_5_legendaries",  "label": "Catch 5 legendaries (lifetime)",  "target": 5,    "reward": 400, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
+    {"id": "e_walk_50km",      "label": "Walk 50 km cumulative",           "target": 50000,"reward": 400, "tier": "hard",   "kind": "walk_meters",     "period": "expert"},
+    {"id": "e_1000",           "label": "Catch 1,000 Pokemon (lifetime)",  "target": 1000, "reward": 600, "tier": "hard",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_25_legendaries", "label": "Catch 25 legendaries (lifetime)", "target": 25,   "reward": 1500,"tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
 ]
+
+EXPERT_SEQUENCE = [c["id"] for c in CHALLENGE_TEMPLATES if c["period"] == "expert"]
+TEMPLATES_BY_ID = {c["id"]: c for c in CHALLENGE_TEMPLATES}
 
 
 def _today_ymd() -> str:
@@ -2745,107 +2784,218 @@ def _today_start_iso() -> str:
     return start.astimezone(timezone.utc).isoformat()
 
 
-def _pick_daily_challenges(camper_id: str, ymd: str) -> List[dict]:
-    """Deterministic mix: 2 easy + 2 medium + 2 hard. Same camper+date always
-    gets the same 6 challenges so reloads don't reshuffle them.
+def _week_key() -> str:
+    iso = now_utc().astimezone().isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
 
-    Uses sha1 instead of Python's hash() because hash() is salted per process
-    (PYTHONHASHSEED), which would reshuffle on every backend restart."""
-    seed_bytes = hashlib.sha1(f"{camper_id}|{ymd}".encode()).digest()
-    seed = int.from_bytes(seed_bytes[:8], "big", signed=False)
-    rng = random.Random(seed)
-    by_tier = {"easy": [], "medium": [], "hard": []}
+
+def _week_start_iso() -> str:
+    """Start of the current ISO week (Monday 00:00 local) as UTC ISO string."""
+    local = now_utc().astimezone()
+    monday = (local - timedelta(days=local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return monday.astimezone(timezone.utc).isoformat()
+
+
+def _month_key() -> str:
+    return now_utc().astimezone().strftime("%Y-%m")
+
+
+def _month_start_iso() -> str:
+    local = now_utc().astimezone()
+    first = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return first.astimezone(timezone.utc).isoformat()
+
+
+def _period_cutoff_iso(period: str) -> Optional[str]:
+    if period == "daily":
+        return _today_start_iso()
+    if period == "weekly":
+        return _week_start_iso()
+    if period == "monthly":
+        return _month_start_iso()
+    if period == "expert":
+        return None  # lifetime
+    return None
+
+
+def _period_key(period: str) -> str:
+    return {
+        "daily":   _today_ymd(),
+        "weekly":  _week_key(),
+        "monthly": _month_key(),
+        "expert":  "all-time",
+    }.get(period, "")
+
+
+def _seeded_rng(camper_id: str, period: str) -> random.Random:
+    """Deterministic RNG for picking which templates appear in this period."""
+    key = f"{camper_id}|{period}|{_period_key(period)}"
+    seed_bytes = hashlib.sha1(key.encode()).digest()
+    return random.Random(int.from_bytes(seed_bytes[:8], "big"))
+
+
+def _pick_period_challenges(camper_id: str, period: str, count_by_tier: dict) -> List[dict]:
+    """Pick `count_by_tier[tier]` distinct challenges per tier deterministically."""
+    rng = _seeded_rng(camper_id, period)
+    pool_by_tier = {"easy": [], "medium": [], "hard": []}
     for c in CHALLENGE_TEMPLATES:
-        by_tier[c["tier"]].append(c)
+        if c.get("period") == period:
+            pool_by_tier[c["tier"]].append(c)
     picks = []
-    for tier in ("easy", "medium", "hard"):
-        pool = by_tier[tier][:]
+    for tier, n in count_by_tier.items():
+        pool = pool_by_tier.get(tier, [])[:]
         rng.shuffle(pool)
-        # Take up to 2 distinct templates per tier
-        picks.extend(pool[:2])
+        picks.extend(pool[:n])
     return picks
+
+
+async def _expert_index(camper_id: str) -> int:
+    """How many expert challenges this camper has already claimed."""
+    return await db.ball_ledger.count_documents({
+        "camper_id": camper_id,
+        "reason": "challenge_complete",
+        "meta.period": "expert",
+    })
+
+
+async def _picks_for_period(camper_id: str, period: str) -> List[dict]:
+    if period == "daily":
+        return _pick_period_challenges(camper_id, "daily", {"easy": 2, "medium": 2, "hard": 2})
+    if period == "weekly":
+        return _pick_period_challenges(camper_id, "weekly", {"easy": 2, "medium": 2, "hard": 2})
+    if period == "monthly":
+        # Monthly pool has fewer easy templates — match what's available.
+        return _pick_period_challenges(camper_id, "monthly", {"easy": 1, "medium": 3, "hard": 3})
+    if period == "expert":
+        idx = await _expert_index(camper_id)
+        if idx >= len(EXPERT_SEQUENCE):
+            return []
+        return [TEMPLATES_BY_ID[EXPERT_SEQUENCE[idx]]]
+    return []
 
 
 async def _challenge_progress(user: dict, ch: dict) -> int:
     """Compute current progress count for one challenge from live data."""
     cid = user["id"]
-    today_iso = _today_start_iso()
+    period = ch.get("period", "daily")
+    cutoff = _period_cutoff_iso(period)
     kind = ch["kind"]
+
+    base_q = {"group_id": cid}
+    if cutoff:
+        base_q["caught_at"] = {"$gte": cutoff}
+
     if kind == "catch_total":
-        return await db.catches.count_documents({
-            "group_id": cid,
-            "caught_at": {"$gte": today_iso},
-        })
+        return await db.catches.count_documents(base_q)
     if kind == "catch_rarity":
-        return await db.catches.count_documents({
-            "group_id": cid,
-            "rarity": ch["rarity"],
-            "caught_at": {"$gte": today_iso},
-        })
+        q = dict(base_q)
+        q["rarity"] = ch["rarity"]
+        return await db.catches.count_documents(q)
     if kind == "catch_featured":
-        # Featured pokemon ids
         fids = [p["id"] async for p in db.pokemon.find({"featured": True}, {"id": 1, "_id": 0})]
         if not fids:
             return 0
-        return await db.catches.count_documents({
-            "group_id": cid,
-            "pokemon_id": {"$in": fids},
-            "caught_at": {"$gte": today_iso},
-        })
+        q = dict(base_q)
+        q["pokemon_id"] = {"$in": fids}
+        return await db.catches.count_documents(q)
     if kind == "throw_count":
-        return await db.ball_ledger.count_documents({
-            "camper_id": cid,
-            "reason": "throw",
-            "created_at": {"$gte": today_iso},
-        })
+        q = {"camper_id": cid, "reason": "throw"}
+        if cutoff:
+            q["created_at"] = {"$gte": cutoff}
+        return await db.ball_ledger.count_documents(q)
     if kind == "use_fancy_ball":
-        return await db.ball_ledger.count_documents({
-            "camper_id": cid,
-            "reason": "throw",
-            "ball_type": {"$in": ["rayball", "myrtleball", "lunchball"]},
-            "created_at": {"$gte": today_iso},
-        })
+        q = {"camper_id": cid, "reason": "throw", "ball_type": {"$in": ["rayball", "myrtleball", "lunchball"]}}
+        if cutoff:
+            q["created_at"] = {"$gte": cutoff}
+        return await db.ball_ledger.count_documents(q)
     if kind == "walk_meters":
-        pos = await db.camper_positions.find_one({"camper_id": cid}, {"_id": 0})
-        if not pos:
-            return 0
-        # daily_distance_m resets when a new local day starts
-        if pos.get("date_ymd") != _today_ymd():
-            return 0
-        return int(pos.get("daily_distance_m", 0))
+        if period == "daily":
+            pos = await db.camper_positions.find_one({"camper_id": cid}, {"_id": 0})
+            if not pos:
+                return 0
+            if pos.get("date_ymd") != _today_ymd():
+                return 0
+            return int(pos.get("daily_distance_m", 0))
+        # week / month / expert: sum from camper_distance_daily
+        if period == "weekly":
+            since = (now_utc().astimezone() - timedelta(days=now_utc().astimezone().weekday())).date().isoformat()
+        elif period == "monthly":
+            since = now_utc().astimezone().replace(day=1).date().isoformat()
+        else:
+            since = "0000-00-00"  # all-time
+        agg = await db.camper_distance_daily.aggregate([
+            {"$match": {"camper_id": cid, "date_ymd": {"$gte": since}}},
+            {"$group": {"_id": None, "total": {"$sum": "$meters"}}},
+        ]).to_list(1)
+        return int(agg[0]["total"]) if agg else 0
     if kind == "pin_claim":
-        return await db.ball_ledger.count_documents({
-            "camper_id": cid,
-            "reason": "pin_bonus",
-            "created_at": {"$gte": today_iso},
-        })
+        q = {"camper_id": cid, "reason": "pin_bonus"}
+        if cutoff:
+            q["created_at"] = {"$gte": cutoff}
+        return await db.ball_ledger.count_documents(q)
     if kind == "distinct_types":
-        types = await db.catches.distinct("pokemon_type", {
-            "group_id": cid,
-            "caught_at": {"$gte": today_iso},
-        })
+        types = await db.catches.distinct("pokemon_type", base_q)
         return len([t for t in types if t])
+    if kind == "distinct_pokemon":
+        ids = await db.catches.distinct("pokemon_id", base_q)
+        return len(ids)
     return 0
 
 
-async def _was_claimed(camper_id: str, challenge_id: str, ymd: str) -> bool:
-    doc = await db.ball_ledger.find_one({
+async def _was_claimed(camper_id: str, challenge_id: str, period: str, period_key: str) -> bool:
+    """A challenge is 'claimed' once per period instance. Daily resets every
+    YYYY-MM-DD, weekly every YYYY-WW, etc. Expert only once ever."""
+    q = {
         "camper_id": camper_id,
         "reason": "challenge_complete",
         "meta.challenge_id": challenge_id,
-        "meta.ymd": ymd,
-    }, {"_id": 0})
+    }
+    if period != "expert":
+        q["meta.period_key"] = period_key
+    doc = await db.ball_ledger.find_one(q, {"_id": 0})
     return doc is not None
 
 
+@api.get("/challenges")
+async def get_all_challenges(user=Depends(get_current_user)):
+    """Returns daily / weekly / monthly / expert buckets."""
+    out = {}
+    for period in ("daily", "weekly", "monthly", "expert"):
+        picks = await _picks_for_period(user["id"], period)
+        period_key = _period_key(period)
+        items = []
+        for ch in picks:
+            progress = await _challenge_progress(user, ch)
+            claimed = await _was_claimed(user["id"], ch["id"], period, period_key)
+            items.append({
+                "id": ch["id"],
+                "label": ch["label"],
+                "tier": ch["tier"],
+                "target": ch["target"],
+                "progress": min(progress, ch["target"]),
+                "completed": progress >= ch["target"],
+                "claimed": claimed,
+                "reward": ch["reward"],
+                "kind": ch["kind"],
+                "period": period,
+            })
+        out[period] = {"key": period_key, "challenges": items}
+    # Total count across periods for the pill badge
+    total = sum(len(out[p]["challenges"]) for p in out)
+    ready = sum(1 for p in out for c in out[p]["challenges"] if c["completed"] and not c["claimed"])
+    out["totals"] = {"available": total, "ready_to_claim": ready}
+    return out
+
+
+# Back-compat: original GET /challenges/today now returns the daily bucket only.
 @api.get("/challenges/today")
 async def challenges_today(user=Depends(get_current_user)):
-    ymd = _today_ymd()
-    picks = _pick_daily_challenges(user["id"], ymd)
+    picks = await _picks_for_period(user["id"], "daily")
+    period_key = _period_key("daily")
     out = []
     for ch in picks:
         progress = await _challenge_progress(user, ch)
-        claimed = await _was_claimed(user["id"], ch["id"], ymd)
+        claimed = await _was_claimed(user["id"], ch["id"], "daily", period_key)
         out.append({
             "id": ch["id"],
             "label": ch["label"],
@@ -2857,17 +3007,21 @@ async def challenges_today(user=Depends(get_current_user)):
             "reward": ch["reward"],
             "kind": ch["kind"],
         })
-    return {"date": ymd, "challenges": out}
+    return {"date": period_key, "challenges": out}
 
 
 @api.post("/challenges/{challenge_id}/claim")
 async def challenges_claim(challenge_id: str, user=Depends(get_current_user)):
-    ymd = _today_ymd()
-    picks = _pick_daily_challenges(user["id"], ymd)
-    ch = next((c for c in picks if c["id"] == challenge_id), None)
+    ch = TEMPLATES_BY_ID.get(challenge_id)
     if not ch:
-        raise HTTPException(404, "Challenge not active today")
-    if await _was_claimed(user["id"], challenge_id, ymd):
+        raise HTTPException(404, "Challenge not found")
+    period = ch["period"]
+    # Verify this challenge is currently active for the camper
+    active = await _picks_for_period(user["id"], period)
+    if not any(c["id"] == challenge_id for c in active):
+        raise HTTPException(404, "Challenge not active for you right now")
+    period_key = _period_key(period)
+    if await _was_claimed(user["id"], challenge_id, period, period_key):
         raise HTTPException(400, "Already claimed")
     progress = await _challenge_progress(user, ch)
     if progress < ch["target"]:
@@ -2875,11 +3029,17 @@ async def challenges_claim(challenge_id: str, user=Depends(get_current_user)):
     wallet = await adjust_ball(
         user["id"], "pokeball", int(ch["reward"]),
         "challenge_complete",
-        {"challenge_id": challenge_id, "ymd": ymd, "label": ch["label"]},
+        {
+            "challenge_id": challenge_id,
+            "period": period,
+            "period_key": period_key,
+            "label": ch["label"],
+        },
     )
     return {
         "ok": True,
         "challenge_id": challenge_id,
+        "period": period,
         "reward": int(ch["reward"]),
         "balance": int(wallet.get("balance", 0)),
         "balances": wallet.get("balances") or {},
