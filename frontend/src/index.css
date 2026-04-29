@@ -151,3 +151,18 @@ code {
         display: contents !important;
     }
 }
+
+/* Hide the Emergent platform branding badge in the corner — kids see this
+   game on iPads and the badge floats over the gameplay UI. */
+a[href*="emergent"][target="_blank"],
+a[href*="emergent.sh"],
+a[href*="emergentagent.com"][target="_blank"],
+#__emergent-badge,
+[id*="emergent-badge" i],
+[class*="emergent-badge" i],
+[data-emergent-badge] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}

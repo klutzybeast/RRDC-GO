@@ -80,7 +80,6 @@ export default function ARPage() {
     const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef, cameraOn);
 
     const [spawn, setSpawn] = useState(null);
-    const [otherSpawns, setOtherSpawns] = useState([]);
     const [activeSpawnId, setActiveSpawnId] = useState(targetSpawnId || null);
     const [missCount, setMissCount] = useState(0);
     const [throwing, setThrowing] = useState(false);
@@ -121,8 +120,6 @@ export default function ARPage() {
             if (chosen && chosen.spawn_id !== activeSpawnId) {
                 setActiveSpawnId(chosen.spawn_id);
             }
-            // Other spawns = everything except the active one
-            setOtherSpawns(list.filter((s) => s.spawn_id !== chosen?.spawn_id));
             if (chosen && !announcedRef.current) {
                 announcedRef.current = true;
                 toast.success(`A wild ${chosen.pokemon.name} appeared!`, { duration: 3500 });
@@ -150,7 +147,6 @@ export default function ARPage() {
         setSpawn(sp);
         setActiveSpawnId(sp.spawn_id);
         setMissCount(0);
-        setOtherSpawns((prev) => prev.filter((s) => s.spawn_id !== sp.spawn_id));
     };
 
     useEffect(() => {
@@ -379,50 +375,6 @@ export default function ARPage() {
                     )}
                     {spawn && (
                         <>
-                            {/* Other active spawns — kid can switch which one to chase */}
-                            {otherSpawns.length > 0 && (
-                                <div className="w-full max-w-md px-3" data-testid="other-spawns-strip">
-                                    <div className="text-[10px] uppercase tracking-widest text-white/80 font-bold mb-1.5 text-center">
-                                        Also nearby ({otherSpawns.length})
-                                    </div>
-                                    <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 no-scrollbar">
-                                        {otherSpawns.map((s) => {
-                                            const rarity = s.pokemon?.rarity || "common";
-                                            const ringColor = {
-                                                common:    "ring-slate-300",
-                                                uncommon:  "ring-emerald-400",
-                                                rare:      "ring-river-400",
-                                                legendary: "ring-amber-400",
-                                            }[rarity] || "ring-slate-300";
-                                            return (
-                                                <button
-                                                    key={s.spawn_id}
-                                                    onClick={() => switchToSpawn(s)}
-                                                    className={`flex-shrink-0 w-16 rounded-2xl bg-black/45 backdrop-blur-sm ring-2 ${ringColor} p-1.5 hover:bg-black/60 transition-colors`}
-                                                    data-testid={`other-spawn-${s.spawn_id}`}
-                                                    aria-label={`Switch to ${s.pokemon.name}`}
-                                                >
-                                                    <div className="aspect-square w-full bg-white/10 rounded-xl overflow-hidden flex items-center justify-center">
-                                                        {s.pokemon?.image_data_url ? (
-                                                            <img
-                                                                src={s.pokemon.image_data_url}
-                                                                alt={s.pokemon.name}
-                                                                className="w-full h-full object-contain"
-                                                                loading="lazy"
-                                                            />
-                                                        ) : (
-                                                            <div className="text-xl">?</div>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-[10px] font-bold text-white text-center mt-1 leading-tight truncate" title={s.pokemon.name}>
-                                                        {s.pokemon.name}
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
                             <BallSelector
                                 selected={selectedBall}
                                 onSelect={setSelectedBall}
