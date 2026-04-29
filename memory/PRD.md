@@ -214,3 +214,45 @@ Admin UI in `SpawnConfigTab.jsx`: "+ Add window" appends a row with label / `dat
 - Migrate `google.maps.Marker` → `AdvancedMarkerElement` (deprecation warning, non-blocking).
 - TZ field on SpawnConfig so daily-hours fallback isn't tied to server local time.
 - Index `camper_positions.updated_at` and apply `$gte` filter at query time for very large rosters.
+
+---
+
+## Iteration 11 — GPS-required spawns + Live Weather AR scene (2026-04-29)
+
+### P0 — "Pokémon spawning miles away" complaint
+With multi-tenant play (800 kids logging in from anywhere — backyards, parks, cars on the way to camp), the previous spawn engine had two bugs:
+
+1. **Race-condition first poll**: MapPage's first `/spawn/current` call fired before browser geolocation had resolved → backend planted spawns at camp NY pins (or fallback camp center) → kid in California saw spawns 4500 km away.
+2. **No relocation on movement**: Once spawns were placed, they stayed for the 1-hour TTL even if the camper moved across the map (or even across the country in extreme cases).
+
+**Fix**:
+- Backend `maybe_create_spawn` now bails out early with an empty list if `camper_lat/lng` is missing — no GPS, no spawns.
+- New haversine helper `haversine_m()` plus a `STALE_SPAWN_RELOCATE_M = 250` constant. Every poll with fresh GPS auto-prunes any existing spawn farther than 250 m from the camper, so the next refill spawns Pokémon right around them.
+- Removed the dead `pick_map_pin()` and `camp_latitude/longitude` fallback branches in placement — every spawn is now lat/lng-anchored to the camper.
+- Frontend `MapPage` no longer fires the early "warm-up" `/spawn/current` ping without coords (the leftover that triggered the bad placement).
+
+Verified by iteration_11 testing agent: SF camper → all 5 spawns within 50 m. Move to Seattle (1100 km away) → next poll ALL 5 spawns within 250 m of new location. Polls without lat/lng return empty.
+
+### P1 — Live weather + day/night AR fallback scene
+The user's reference screenshot was Pokémon GO's night scene (dark navy sky, forest silhouette, lit grass). Built a full theming system:
+
+1. **New `/api/ambient` backend endpoint** (auth required) — calls **Open-Meteo** (free, keyless) and maps WMO weather codes into 10 simple buckets:
+   `sunny | partly_cloudy | cloudy | rain | thunder | snow | fog | windy | cold_clear | clear_night`
+   Cached 10 minutes per ~1 km cell so 800 kids polling won't hammer upstream.
+2. **`ARFallbackScene` rewrite** — accepts `ambient` prop and renders:
+   - Sky gradient per condition + day/night
+   - Animated SVG forest silhouette (matches user's reference)
+   - Sun (rotating rays) on clear days, moon + twinkling stars on clear nights
+   - Drifting clouds (slow on cloudy, fast on windy) or heavy storm clouds
+   - Animated rain droplets, snow (with drift), lightning flash on thunder, fog overlay
+   - Tilt-sway intensity scales with wind/storm
+   - Snow blanket on the foreground grass when snowing
+3. **`ARPage` wiring** — fetches `/ambient` on mount with browser geolocation, refreshes every 10 minutes, passes to scene component.
+
+### Backlog unchanged from iteration 10
+- Refactor 2500+ line `server.py` into `/app/backend/routers/`.
+- ScheduledWindow Pydantic submodel.
+- TZ field on SpawnConfig.
+- AdvancedMarkerElement migration.
+- Camper "stationary >15 min" alert on admin Live Map (safety signal).
+
