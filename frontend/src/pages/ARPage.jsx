@@ -184,13 +184,22 @@ export default function ARPage() {
         return () => clearInterval(id);
     }, []);
 
-    // If no spawn exists after a few seconds, redirect back to map
+    // If no spawn exists after the FIRST few polling seconds, redirect to map.
+    // Once we've seen any spawn, stay on AR even between polls so the screen
+    // doesn't glitch back to /map after a catch / flee / network blip.
+    const everHadSpawnRef = useRef(false);
+    useEffect(() => {
+        if (spawn) everHadSpawnRef.current = true;
+    }, [spawn]);
     useEffect(() => {
         const t = setTimeout(() => {
-            if (!spawn && !result) nav("/map");
-        }, 4000);
+            if (!spawn && !result && !throwing && !everHadSpawnRef.current) {
+                nav("/map");
+            }
+        }, 6000);
         return () => clearTimeout(t);
-    }, [spawn, result, nav]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const throwBall = async () => {
         if (!spawn || throwing) return;
@@ -238,8 +247,12 @@ export default function ARPage() {
             if (msg?.toLowerCase?.().includes("out of")) {
                 setShowOutOfBalls(true);
             } else if (msg?.toLowerCase?.().includes("mismatch") || msg?.toLowerCase?.().includes("expired")) {
+                // Don't yank the kid back to the map — just refresh and
+                // surface the next spawn naturally.
                 toast.error(msg);
-                nav("/map");
+                setSpawn(null);
+                announcedRef.current = false;
+                setActiveSpawnId(null);
             } else {
                 toast.error(msg);
             }
@@ -446,8 +459,14 @@ export default function ARPage() {
             <CatchSuccessModal
                 open={!!result}
                 result={result}
-                onClose={() => { setResult(null); nav("/map"); }}
-                onGoToCollection={() => { setResult(null); nav("/collection"); }}
+                onClose={() => {
+                    // Just close the modal — AR page will keep polling and
+                    // surface the next nearby spawn so the kid keeps hunting
+                    // without bouncing back to the map.
+                    setResult(null);
+                    setMissCount(0);
+                    announcedRef.current = false;
+                }}
             />
             <OutOfBallsModal
                 open={showOutOfBalls}

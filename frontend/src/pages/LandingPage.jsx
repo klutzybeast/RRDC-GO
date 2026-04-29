@@ -19,7 +19,7 @@ const FEATURES = [
     { Icon: Sparkles,    title: "11 Pokémon types",        desc: "Fire, water, grass, electric, psychic, dark and more. Each one looks different.", color: "from-fuchsia-400 to-rose-500" },
     { Icon: ScrollText,  title: "Daily challenges",        desc: "Daily, weekly, monthly, and expert challenges. Earn balls. Stay engaged.", color: "from-amber-400 to-orange-500" },
     { Icon: Compass,     title: "Director live map",       desc: "Counselors see every camper in real time. Safety + fun in one screen.", color: "from-sky-400 to-blue-600" },
-    { Icon: Trophy,      title: "Group leaderboards",      desc: "Bunks compete for catch counts, supervisor catches, and rare finds.", color: "from-yellow-400 to-amber-600" },
+    { Icon: Trophy,      title: "Group leaderboards",      desc: "Groups compete for catch counts, supervisor catches, and rare finds.", color: "from-yellow-400 to-amber-600" },
 ];
 
 const PHASES = [
@@ -40,8 +40,8 @@ const PHASES = [
         eta: "Soon",
         bullets: [
             "Camp pins split into Stops (free balls) and Gyms.",
-            "Bunks claim Gyms with their best supervisor.",
-            "Rival bunks battle to take them back.",
+            "Groups claim Gyms with their best supervisor.",
+            "Rival groups battle to take them back.",
         ],
         accent: "from-amber-400 to-orange-600",
     },
@@ -50,7 +50,7 @@ const PHASES = [
         Icon: Gift,
         eta: "Soon",
         bullets: [
-            "Add friends across or within bunks.",
+            "Add friends across or within groups.",
             "Send a daily gift — postcard + balls.",
             "7-day streak → bonus rare ball.",
         ],
@@ -376,7 +376,7 @@ export default function LandingPage() {
                         Ready to play?
                     </h2>
                     <p className="text-white/90 text-lg mb-10 max-w-xl mx-auto">
-                        Pick your bunk, find your name, and start catching. No password, no app store, no setup.
+                        Pick your group, find your name, and start catching. No password, no app store, no setup.
                     </p>
                     <motion.button
                         onClick={() => nav("/login")}

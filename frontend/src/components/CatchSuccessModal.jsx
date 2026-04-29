@@ -92,21 +92,14 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                             </div>
                         </div>
 
-                        <div className="mt-6 flex flex-col gap-3">
+                        <div className="mt-6">
                             <Button
-                                className="tactile-btn bg-river-500 hover:bg-river-600 text-white font-bold rounded-2xl h-12 text-base"
+                                className="w-full tactile-btn bg-river-500 hover:bg-river-600 text-white font-bold rounded-2xl h-12 text-base"
                                 onClick={onClose}
                                 data-testid="continue-hunting-btn"
                             >
                                 Continue Hunting
                             </Button>
-                            <button
-                                onClick={onGoToCollection}
-                                className="text-river-600 hover:text-river-700 font-semibold text-sm"
-                                data-testid="view-collection-link"
-                            >
-                                View My Collection →
-                            </button>
                         </div>
                     </motion.div>
                 </motion.div>

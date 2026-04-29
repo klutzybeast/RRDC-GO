@@ -58,7 +58,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 0.25, "uncommon": 0.333, "rare": 0.20, "legendary": 0.167}
+CATCH_RATES = {"common": 0.40, "uncommon": 0.35, "rare": 0.28, "legendary": 0.30}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
@@ -1379,11 +1379,14 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         # Track misses on this spawn — flee chance escalates so the Pokemon
         # CAN still be caught at any throw count, but might run as misses pile up.
         misses = int(cur.get("miss_count", 0)) + 1
-        # Gentle flee scaling — most kids should still catch even legendaries.
-        # Flee starts at 0% (1st miss is "free"), grows by ~3% per subsequent miss.
-        FLEE_PER_MISS = {"common": 0.02, "uncommon": 0.025, "rare": 0.03, "legendary": 0.035}
-        FLEE_CAP = 0.30
-        flee_chance = min(FLEE_CAP, max(0.0, (misses - 1) * FLEE_PER_MISS.get(rarity, 0.03)))
+        # Gentler flee scaling for harder rarities — kids should reliably
+        # catch legendaries when a supervisor spawns. Legendaries flee less
+        # often per miss and cap lower so they don't run before the kid lands one.
+        FLEE_PER_MISS = {"common": 0.03, "uncommon": 0.03, "rare": 0.025, "legendary": 0.018}
+        FLEE_CAP = {"common": 0.35, "uncommon": 0.30, "rare": 0.22, "legendary": 0.15}
+        per = FLEE_PER_MISS.get(rarity, 0.03)
+        cap = FLEE_CAP.get(rarity, 0.30)
+        flee_chance = min(cap, max(0.0, (misses - 1) * per))
         fled = random.random() < flee_chance
 
         if fled:
