@@ -452,12 +452,13 @@ export default function ARPage() {
                 open={!!result}
                 result={result}
                 onClose={() => {
-                    // Just close the modal — AR page will keep polling and
-                    // surface the next nearby spawn so the kid keeps hunting
-                    // without bouncing back to the map.
+                    // After a catch, send the camper back to the map so they
+                    // can pick the next Pokemon to chase (they liked seeing
+                    // the map between catches).
                     setResult(null);
                     setMissCount(0);
                     announcedRef.current = false;
+                    nav("/map");
                 }}
             />
             <OutOfBallsModal
