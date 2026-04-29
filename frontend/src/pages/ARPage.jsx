@@ -82,6 +82,7 @@ export default function ARPage() {
     const [result, setResult] = useState(null);
     const [showBallAnim, setShowBallAnim] = useState(false);
     const [flash, setFlash] = useState("");
+    const [ambient, setAmbient] = useState(null);
     const pollRef = useRef(null);
     const announcedRef = useRef(false);
 
@@ -122,6 +123,35 @@ export default function ARPage() {
         pollRef.current = setInterval(poll, 6000);
         return () => clearInterval(pollRef.current);
     }, [poll]);
+
+    // Fetch ambient (weather + day/night) once on entry and refresh every 10 min.
+    useEffect(() => {
+        const fetchAmbient = (lat, lng) => {
+            const params = lat != null && lng != null ? { lat, lng } : {};
+            userApi.get("/ambient", { params }).then((r) => setAmbient(r.data)).catch(() => {});
+        };
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => fetchAmbient(pos.coords.latitude, pos.coords.longitude),
+                () => fetchAmbient(),
+                { enableHighAccuracy: false, timeout: 4000, maximumAge: 5 * 60 * 1000 }
+            );
+        } else {
+            fetchAmbient();
+        }
+        const id = setInterval(() => {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => fetchAmbient(pos.coords.latitude, pos.coords.longitude),
+                    () => fetchAmbient(),
+                    { enableHighAccuracy: false, timeout: 4000, maximumAge: 5 * 60 * 1000 }
+                );
+            } else {
+                fetchAmbient();
+            }
+        }, 10 * 60 * 1000);
+        return () => clearInterval(id);
+    }, []);
 
     // If no spawn exists after a few seconds, redirect back to map
     useEffect(() => {
@@ -196,7 +226,7 @@ export default function ARPage() {
             <video ref={videoRef} className="ar-video" playsInline muted autoPlay />
 
             {/* Cartoony Pokemon-GO-style fallback when camera is off / denied */}
-            {camStatus !== "running" && <ARFallbackScene />}
+            {camStatus !== "running" && <ARFallbackScene ambient={ambient} />}
 
             {/* Camera permission / unavailable prompt — only when the user WANTS camera on */}
             {cameraOn && (camStatus === "denied" || camStatus === "error" || camStatus === "unavailable") && (

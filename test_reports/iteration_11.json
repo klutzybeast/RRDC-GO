@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 11 — Validated /api/ambient (Open-Meteo + cache + fallback), strict GPS-required spawn placement, camper relocation auto-pruning, and ARFallbackScene rendering with day/night + weather theming. Backend 8/8 pytest pass; Frontend AR scene PASS with valid data-condition + data-is-day matching ambient response.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/iteration11_results.xml"
+  ],
+  "verified_features": [
+    "GET /api/ambient requires auth (401/403 without Bearer).",
+    "GET /api/ambient (no lat/lng) returns server-time fallback {is_day, condition∈{sunny|clear_night}, temperature_c=null, wind_kmh=null, weather_code=0, source='fallback'}. Verified live: {is_day:false, condition:'clear_night', source:'fallback'}.",
+    "GET /api/ambient?lat=40.7128&lng=-74.0060 → source='open-meteo', all 5 fields populated, condition∈valid bucket. Live verified Reykjavik (64.14,-21.94): {is_day:false, condition:'cloudy', temperature_c:5.7, wind_kmh:29.9, weather_code:3, source:'open-meteo'}.",
+    "Cache hit on second call with same coords < 1500ms (incl. ingress); rounded-to-2-decimals key shared between (40.7128,-74.0060) and (40.7099,-74.0099) — second variant also hits cache.",
+    "Edge coords (0,0) still return 200 with valid condition/source — no 500 on unusual upstream payload.",
+    "GET /api/spawn/current WITHOUT lat/lng returns 200 with spawns list (empty for fresh camper, no new placement).",
+    "GET /api/spawn/current?lat=37.7749&lng=-122.4194 returned spawns; every spawn within haversine < 50m of (37.7749, -122.4194).",
+    "Camper relocation: after polling at SF then immediately at Seattle (~1100km), every spawn in 2nd response is within 250m of new Seattle coords — old SF spawns auto-pruned by haversine > 250m filter (server.py L671-682).",
+    "Frontend /ar: ARFallbackScene rendered with data-testid='ar-fallback-scene', data-condition='cloudy', data-is-day='0' — matches ambient.is_day=false from /api/ambient. Dark sky + dark forest silhouette + grass (Pokemon GO night style) visually confirmed in screenshot. Element present while camStatus !== 'running' (camera permission denied in headless preview)."
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 2550 lines — still well past the 700-line guideline. Ambient + spawn + admin all live in a single module. Splitting into routers (spawn.py, admin.py, ambient.py, camper.py, analytics.py) remains the highest-value refactor.",
+    "/api/ambient cache _AMBIENT_CACHE is an in-process dict with no eviction. With ~300 unique rounded keys it's fine, but a long-running deploy could grow. Consider TTLCache (cachetools) or a periodic prune.",
+    "_wmo_to_condition treats `is_day` returned from the API as primary, but for the no-GPS fallback path `is_day` is computed from the SERVER's local timezone (now_utc().astimezone()), which depends on TZ env. In a US-camp deploy on a UTC server this could mis-flag day/night. Document or hardcode camp TZ.",
+    "Reykjavik response wind_kmh=29.9 is just under the 30 threshold for 'windy' — boundary is `>= 30`, fine. But snow (cold + wmo>=71) overrides cold_clear; that's intentional but not unit-tested. Add a tiny pure-function test for _wmo_to_condition.",
+    "STALE_SPAWN_RELOCATE_M=250 hardcoded; for hiking groups that travel >250m fast this could over-prune. Make it a SpawnConfig field.",
+    "ARPage.jsx fetches ambient on mount + every 10 min, but does not re-fetch when camper moves > a few hundred meters. A camper who walks 2km will keep showing stale weather for up to 10min. Acceptable for MVP."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration11.py"
+  ],
+  "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "100% on targeted AR-scene selectors"},
+  "test_credentials": "Admin admin/Camp1993; Camper login: GET /api/groups → /api/groups/{code}/campers (LIST) → POST /api/camper/login {camper_id} → access_token.",
+  "seed_data_creation": "None. Used real campers (e.g., B01 Colton Ahern). No admin state mutated.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file: /app/backend/tests/test_iteration11.py. Run with REACT_APP_BACKEND_URL=https://river-catch-1.preview.emergentagent.com pytest backend/tests/test_iteration11.py. AR scene testids: data-testid='ar-fallback-scene', data-condition (one of sunny|partly_cloudy|cloudy|rain|thunder|snow|fog|windy|cold_clear|clear_night), data-is-day ('1' day | '0' night). Geolocation in Playwright must be granted via page.context.grant_permissions(['geolocation'], origin=...) + set_geolocation BEFORE first navigation. /api/ambient cache key is round(lat,2),round(lng,2). Spawn relocation threshold = 250m (STALE_SPAWN_RELOCATE_M).",
+  "rca of the issue": "No bugs found — all P0 backend behaviors and P1 frontend rendering match spec. /api/ambient correctly maps Open-Meteo WMO codes via _wmo_to_condition (server.py L1938-1959), caches by 2-decimal rounded key for 600s (L1934-1986), and falls back gracefully on any upstream exception (L2016-2026). maybe_create_spawn (L648) early-returns when camper_lat/lng is None and prunes spawns where haversine_m(camper, spawn) > 250m (L671-682). Frontend ARPage.jsx wires geolocation → /api/ambient → ARFallbackScene which renders SKY/GRASS/HILL palettes per condition with data-testid + data-condition + data-is-day attributes."
+}

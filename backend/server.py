@@ -1927,6 +1927,109 @@ async def get_camp_center(user=Depends(get_current_user)):
 
 
 # ----------------------
+# AMBIENT (weather + day/night) — powers the AR fallback scene theming.
+# Open-Meteo is free + keyless. Results cached for 10 minutes per
+# rounded coordinate so 800 kids polling don't hammer the upstream.
+# ----------------------
+_AMBIENT_CACHE: dict = {}
+_AMBIENT_TTL_SEC = 600
+
+
+def _wmo_to_condition(code: int, is_day: int, temp_c: float, wind_kmh: float) -> str:
+    """Map Open-Meteo WMO weather code → simple scene bucket the frontend
+    knows how to render. See https://open-meteo.com/en/docs (WMO codes)."""
+    c = int(code or 0)
+    if c in (95, 96, 99):
+        return "thunder"
+    if c in (71, 73, 75, 77, 85, 86):
+        return "snow"
+    if c in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+        return "rain"
+    if c in (45, 48):
+        return "fog"
+    if c in (3,):
+        return "cloudy"
+    if c in (1, 2):
+        return "partly_cloudy"
+    # 0 = clear sky
+    if wind_kmh and wind_kmh >= 30:
+        return "windy"
+    if temp_c is not None and temp_c <= 4:
+        return "cold_clear"
+    return "sunny" if int(is_day or 0) == 1 else "clear_night"
+
+
+@api.get("/ambient")
+async def get_ambient(
+    user=Depends(get_current_user),
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+):
+    """Return current sky/weather context for the camper's location."""
+    if lat is None or lng is None:
+        # No GPS — give a generic daytime sunny default so the scene still looks nice.
+        h = now_utc().astimezone().hour
+        return {
+            "is_day": 6 <= h < 19,
+            "condition": "sunny" if 6 <= h < 19 else "clear_night",
+            "temperature_c": None,
+            "wind_kmh": None,
+            "weather_code": 0,
+            "source": "fallback",
+        }
+
+    # Round to ~1 km cells so close-by kids share a cache hit.
+    key = f"{round(float(lat), 2)},{round(float(lng), 2)}"
+    cached = _AMBIENT_CACHE.get(key)
+    now_ts = now_utc().timestamp()
+    if cached and (now_ts - cached["t"]) < _AMBIENT_TTL_SEC:
+        return cached["data"]
+
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as hx:
+            r = await hx.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": float(lat),
+                    "longitude": float(lng),
+                    "current": "temperature_2m,weather_code,wind_speed_10m,is_day",
+                    "wind_speed_unit": "kmh",
+                    "timezone": "auto",
+                },
+            )
+            r.raise_for_status()
+            j = r.json()
+        cur = j.get("current") or {}
+        temp_c = cur.get("temperature_2m")
+        wind = cur.get("wind_speed_10m")
+        is_day = cur.get("is_day", 1)
+        code = cur.get("weather_code", 0)
+        condition = _wmo_to_condition(code, is_day, temp_c, wind)
+        data = {
+            "is_day": bool(is_day),
+            "condition": condition,
+            "temperature_c": float(temp_c) if temp_c is not None else None,
+            "wind_kmh": float(wind) if wind is not None else None,
+            "weather_code": int(code),
+            "source": "open-meteo",
+        }
+    except Exception as e:
+        logger.warning(f"ambient fetch failed for {key}: {e}")
+        h = now_utc().astimezone().hour
+        data = {
+            "is_day": 6 <= h < 19,
+            "condition": "sunny" if 6 <= h < 19 else "clear_night",
+            "temperature_c": None,
+            "wind_kmh": None,
+            "weather_code": 0,
+            "source": "fallback",
+        }
+    _AMBIENT_CACHE[key] = {"t": now_ts, "data": data}
+    return data
+
+
+
+# ----------------------
 # CAMPER POSITION CACHE (reduces chatter; enables future nearby features)
 # ----------------------
 class PositionReq(BaseModel):
