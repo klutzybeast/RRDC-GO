@@ -2746,8 +2746,8 @@ def _today_start_iso() -> str:
 
 
 def _pick_daily_challenges(camper_id: str, ymd: str) -> List[dict]:
-    """Deterministic mix: 1 easy + 1 medium + 1 hard. Same camper+date always
-    gets the same 3 challenges so reloads don't reshuffle them.
+    """Deterministic mix: 2 easy + 2 medium + 2 hard. Same camper+date always
+    gets the same 6 challenges so reloads don't reshuffle them.
 
     Uses sha1 instead of Python's hash() because hash() is salted per process
     (PYTHONHASHSEED), which would reshuffle on every backend restart."""
@@ -2759,8 +2759,10 @@ def _pick_daily_challenges(camper_id: str, ymd: str) -> List[dict]:
         by_tier[c["tier"]].append(c)
     picks = []
     for tier in ("easy", "medium", "hard"):
-        if by_tier[tier]:
-            picks.append(rng.choice(by_tier[tier]))
+        pool = by_tier[tier][:]
+        rng.shuffle(pool)
+        # Take up to 2 distinct templates per tier
+        picks.extend(pool[:2])
     return picks
 
 
