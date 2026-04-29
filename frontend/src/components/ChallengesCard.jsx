@@ -84,14 +84,15 @@ export default function ChallengesCard({ onRewardClaimed }) {
                         data-testid="challenges-modal"
                     >
                         <motion.div
-                            className="w-full max-w-md bg-white rounded-[2rem] p-5 shadow-2xl max-h-[88vh] overflow-y-auto"
+                            className="w-full max-w-md bg-white rounded-[2rem] p-5 shadow-2xl flex flex-col"
+                            style={{ maxHeight: "88vh" }}
                             initial={{ y: 80, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 80, opacity: 0 }}
                             transition={{ type: "spring", bounce: 0.4, duration: 0.5 }}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center justify-between mb-4 flex-shrink-0">
                                 <div>
                                     <div className="text-xs uppercase tracking-widest font-bold text-river-600">Today's</div>
                                     <h2 className="font-heading text-2xl font-bold text-slate-900">Daily Challenges</h2>
@@ -101,10 +102,15 @@ export default function ChallengesCard({ onRewardClaimed }) {
                                 </button>
                             </div>
 
-                            <p className="text-sm text-slate-500 mb-3">
+                            <p className="text-sm text-slate-500 mb-3 flex-shrink-0">
                                 Complete any of these to earn extra Rolling River Balls. Resets at midnight.
                             </p>
 
+                            <div
+                                className="flex-1 min-h-0 overflow-y-auto -mx-5 px-5 pb-2"
+                                style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", overscrollBehavior: "contain" }}
+                                data-testid="challenges-scroll"
+                            >
                             {loading && items.length === 0 ? (
                                 <div className="text-center text-slate-400 text-sm py-8">Loading…</div>
                             ) : items.length === 0 ? (
@@ -163,6 +169,7 @@ export default function ChallengesCard({ onRewardClaimed }) {
                                     })}
                                 </ul>
                             )}
+                            </div>
                         </motion.div>
                     </motion.div>
                 )}
