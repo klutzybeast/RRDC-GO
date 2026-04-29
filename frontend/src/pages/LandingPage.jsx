@@ -173,16 +173,15 @@ export default function LandingPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.7 }}
                 >
-                    <motion.div
-                        initial={{ scale: 0.8 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: "spring", bounce: 0.5, duration: 0.8 }}
-                        className="inline-flex items-baseline gap-2 mb-4"
-                    >
-                        <h1 className="font-heading text-7xl sm:text-8xl lg:text-9xl font-black tracking-tight" style={{ textShadow: "0 6px 30px rgba(0,0,0,0.5)" }}>
-                            RRDC <span className="bg-gradient-to-br from-amber-300 via-amber-400 to-amber-600 bg-clip-text text-transparent">GO</span>
-                        </h1>
-                    </motion.div>
+                    <motion.img
+                        src="/rrdc-logo.png"
+                        alt="RRDC GO"
+                        className="mx-auto w-44 h-44 sm:w-56 sm:h-56 lg:w-64 lg:h-64 mb-3 drop-shadow-2xl"
+                        initial={{ scale: 0.6, rotate: -8, opacity: 0 }}
+                        animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                        transition={{ type: "spring", bounce: 0.5, duration: 1 }}
+                        data-testid="landing-logo"
+                    />
                     <p className="text-lg sm:text-2xl text-white/90 mb-2 font-semibold" style={{ textShadow: "0 2px 12px rgba(0,0,0,0.6)" }}>
                         Catch Pokémon all over Rolling River.
                     </p>

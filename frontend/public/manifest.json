@@ -1,16 +1,26 @@
 {
     "short_name": "RRDC GO",
-    "name": "Rolling River Pokemon AR Catcher",
-    "description": "Catch Pokemon around Rolling River Day Camp — on any phone, tablet or laptop.",
+    "name": "RRDC GO — Catch 'em all at camp!",
+    "description": "Catch Pokémon all over Rolling River Day Camp. AR adventure with daily challenges, supervisor Pokémon, and 4 ball types to earn.",
     "icons": [
         {
-            "src": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
+            "src": "/favicon-32.png",
+            "type": "image/png",
+            "sizes": "32x32"
+        },
+        {
+            "src": "/apple-touch-icon.png",
+            "type": "image/png",
+            "sizes": "180x180"
+        },
+        {
+            "src": "/logo192.png",
             "type": "image/png",
             "sizes": "192x192",
             "purpose": "any maskable"
         },
         {
-            "src": "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png",
+            "src": "/logo512.png",
             "type": "image/png",
             "sizes": "512x512",
             "purpose": "any maskable"
@@ -21,7 +31,7 @@
     "display": "standalone",
     "orientation": "any",
     "theme_color": "#0EA5E9",
-    "background_color": "#F8FAFC",
+    "background_color": "#0F172A",
     "categories": ["games", "entertainment"],
     "prefer_related_applications": false
 }
