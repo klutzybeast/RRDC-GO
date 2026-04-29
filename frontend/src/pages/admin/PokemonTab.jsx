@@ -8,6 +8,8 @@ import { Switch } from "../../components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import RarityBadge from "../../components/RarityBadge";
+import TypeBadge from "../../components/TypeBadge";
+import { TYPE_LIST } from "../../lib/pokemonTypes";
 import { Pencil, Upload, Check, XCircle, Star, Trash2, FileUp } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,7 +20,7 @@ export default function PokemonTab() {
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
-    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", description: "", active: false, featured: false });
+    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", type: "normal", description: "", active: false, featured: false });
     const [uploading, setUploading] = useState(false);
     const [seeding, setSeeding] = useState(false);
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -43,6 +45,7 @@ export default function PokemonTab() {
             name: p.name,
             power_level: p.power_level,
             rarity: p.rarity,
+            type: p.type || "normal",
             description: p.description,
             active: p.active,
             featured: !!p.featured,
@@ -93,6 +96,7 @@ export default function PokemonTab() {
                 file: f,
                 name: baseName.slice(0, 60),
                 rarity: "common",
+                type: "normal",
                 description: "",
                 preview: URL.createObjectURL(f),
             };
@@ -128,6 +132,7 @@ export default function PokemonTab() {
                 fd.append("files", it.file);
                 fd.append("names", it.name.trim());
                 fd.append("rarities", it.rarity);
+                fd.append("types", it.type || "normal");
                 fd.append("descriptions", it.description || "");
             });
             fd.append("active", String(bulkActive));
@@ -238,8 +243,11 @@ export default function PokemonTab() {
                             </div>
                             <div className="p-3">
                                 <div className="font-heading font-bold text-slate-900 text-sm truncate">{p.name}</div>
-                                <div className="mt-2 flex items-center justify-between">
-                                    <RarityBadge rarity={p.rarity} className="text-[10px] px-2 py-0.5" />
+                                <div className="mt-2 flex items-center justify-between gap-1 flex-wrap">
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                        <RarityBadge rarity={p.rarity} className="text-[10px] px-2 py-0.5" />
+                                        {p.type && p.type !== "normal" && <TypeBadge type={p.type} size="sm" />}
+                                    </div>
                                     <span className="text-xs font-bold text-slate-500">PWR {p.power_level}</span>
                                 </div>
                                 <div className="flex gap-1 mt-3">
@@ -309,7 +317,16 @@ export default function PokemonTab() {
                             </div>
                         </div>
                         <div>
-                            <Label>Type / Description</Label>
+                            <Label>Type</Label>
+                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                                <SelectTrigger className="rounded-2xl h-11" data-testid="pokemon-form-type"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    {TYPE_LIST.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div>
+                            <Label>Description</Label>
                             <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="rounded-2xl" data-testid="pokemon-form-desc" />
                         </div>
                         <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
@@ -396,7 +413,7 @@ export default function PokemonTab() {
                                             className="w-16 h-16 rounded-xl object-cover bg-white border border-slate-200 shrink-0"
                                             draggable={false}
                                         />
-                                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2">
                                             <div className="sm:col-span-2">
                                                 <Label className="text-[10px] uppercase tracking-widest text-slate-500">Name</Label>
                                                 <Input
@@ -421,7 +438,21 @@ export default function PokemonTab() {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <div className="sm:col-span-3">
+                                            <div>
+                                                <Label className="text-[10px] uppercase tracking-widest text-slate-500">Type</Label>
+                                                <Select
+                                                    value={it.type || "normal"}
+                                                    onValueChange={(v) => updateBulkItem(i, { type: v })}
+                                                >
+                                                    <SelectTrigger className="rounded-xl h-9 text-sm" data-testid={`bulk-type-${i}`}>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {TYPE_LIST.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="sm:col-span-4">
                                                 <Label className="text-[10px] uppercase tracking-widest text-slate-500">Description</Label>
                                                 <Textarea
                                                     value={it.description}

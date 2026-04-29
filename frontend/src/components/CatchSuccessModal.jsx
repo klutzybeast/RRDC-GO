@@ -1,11 +1,15 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import RarityBadge from "./RarityBadge";
+import TypeBadge from "./TypeBadge";
+import CampBall, { BALL_BY_ID } from "./CampBall";
 import { Button } from "./ui/button";
 
 export default function CatchSuccessModal({ open, result, onClose, onGoToCollection }) {
     if (!open || !result || !result.success) return null;
     const p = result.pokemon || {};
+    const rewards = result.ball_rewards || {};
+    const rewardEntries = Object.entries(rewards).filter(([, n]) => Number(n) > 0);
     return (
         <AnimatePresence>
             {open && (
@@ -47,9 +51,12 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                                     {result.power_rolled}
                                 </div>
                             </div>
-                            <div className="rounded-2xl bg-slate-50 p-4 text-center flex flex-col items-center justify-center">
-                                <div className="text-xs font-bold uppercase text-slate-500 tracking-widest mb-2">Rarity</div>
-                                <RarityBadge rarity={p.rarity} />
+                            <div className="rounded-2xl bg-slate-50 p-4 text-center flex flex-col items-center justify-center gap-1.5">
+                                <div className="text-xs font-bold uppercase text-slate-500 tracking-widest">Rarity / Type</div>
+                                <div className="flex flex-wrap items-center justify-center gap-1">
+                                    <RarityBadge rarity={p.rarity} />
+                                    {p.type && p.type !== "normal" && <TypeBadge type={p.type} size="sm" />}
+                                </div>
                             </div>
                         </div>
 
@@ -57,6 +64,25 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                             <p className="mt-4 text-sm text-slate-600 text-center leading-relaxed" data-testid="catch-description">
                                 {p.description}
                             </p>
+                        )}
+
+                        {rewardEntries.length > 0 && (
+                            <div className="mt-4 rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 border-2 border-amber-300 p-4" data-testid="catch-ball-rewards">
+                                <div className="text-xs font-bold uppercase tracking-widest text-amber-800 text-center">Ball unlocked!</div>
+                                <div className="mt-2 flex items-center justify-center gap-3 flex-wrap">
+                                    {rewardEntries.map(([ball, n]) => (
+                                        <div key={ball} className="flex items-center gap-2">
+                                            <CampBall ballId={ball} size={36} animate={false} />
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-900">+{n} {BALL_BY_ID[ball]?.label || ball}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-amber-700">
+                                                    earned this catch
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
 
                         <div className="mt-5 text-center text-sm text-slate-500">

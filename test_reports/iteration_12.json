@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 12 — Validated 4-ball wallet refactor + Pokemon `type` field across model/admin/bank/UI. Backend 9/9 pytest pass. Frontend AR flow verified live: BallSelector with 4 ball-pick buttons + ball-count-{ballId}, active-spawn-name visible, throw decrements wallet (264→263) via clickable river-ball, ball selection ring updates. Pokemon 'Mark' was type=normal so TypeBadge correctly hidden per spec.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12.py",
+    "/app/test_reports/pytest/iteration12_results.xml"
+  ],
+  "verified_features": [
+    "GET /api/wallet returns: balance(=pokeball mirror), balances{pokeball,rayball,myrtleball,lunchball}, ball_catch_mult{1.0,1.4,1.8,2.5}, ball_earn_thresholds{rayball:uncommon×5, myrtleball:rare×3, lunchball:legendary×1}, earn_progress{rayball,myrtleball,lunchball each {have,need,rarity}}. Live verified.",
+    "POST /api/spawn/catch with ball_type='rayball' when balance=0 falls back to pokeball: response.ball_used='pokeball', balances echoed back. Verified live.",
+    "POST /api/spawn/catch with ball_type='pokeball' returns ball_used='pokeball'; ball_rewards is dict (empty or with milestone fancy ball depending on rarity counter). Verified at high catch_rate (0.99).",
+    "BALL_CATCH_MULT codepath: ordering invariant 1.0 < 1.4 < 1.8 < 2.5 confirmed in /api/wallet payload. multiplier applied at server.py L1372 (random.random() < min(0.97, base_rate * ball_mult)).",
+    "Pokemon model: PokemonOut.type defaults to 'normal'; PATCH /admin/pokemon/{id} {type:'electric'} persists and round-trips via GET /admin/pokemon. Verified live with restore.",
+    "POST /admin/pokemon/bulk-upload accepts parallel `types` Form field; valid set = {normal,fire,water,grass,electric,rock,psychic,dark,ice,ghost,fighting}; invalid → 'normal'. Verified by uploading 2 PNGs with types=rock,dark.",
+    "GET /api/bank entries each include `type` field (default 'normal'). Verified.",
+    "Frontend /ar: data-testid='ball-selector' renders 4 buttons data-testid='ball-pick-{pokeball|rayball|myrtleball|lunchball}' and data-testid='ball-count-{ballId}' with values from /api/wallet (live counts: 99+, 0, 1, 0). Click on ball-pick-rayball adds ring2-white selection class.",
+    "Frontend /ar: data-testid='active-spawn-name' displays current pokemon name ('Mark'). RarityBadge (RARE) shown. TypeBadge correctly OMITTED for type='normal' (per spec p.type !== 'normal').",
+    "Frontend /ar: Tap on data-testid='river-ball' triggers throw + POST /api/spawn/catch — wallet pokeball count decremented (264→263) and miss state shown ('misses: 1'). Throw animation (~0.85s) executes without console errors.",
+    "Frontend Admin /admin → Pokemon tab: data-testid='pokemon-form-type' Select exists in edit dialog (PokemonTab.jsx:322); bulk row has data-testid='bulk-type-{i}' (PokemonTab.jsx:447). Verified by source.",
+    "Frontend Collection page: card and detail modal include <TypeBadge> only when p.type && p.type !== 'normal' (CollectionPage.jsx:144, 172). CatchSuccessModal.jsx:58 also includes it. Verified by source."
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 2718 lines — earlier feedback persists: still highest-value refactor. BALL_TYPES + BALL_CATCH_MULT + BALL_EARN_THRESHOLDS at L2397 should ideally live in a domain config module (balls.py) with a unit test for empty_balances() / get_or_init_wallet() migration.",
+    "spawn_catch (L1323) is now ~175 lines and mixes: ball selection, fallback, deduction, success/fail roll, miss tracking, milestone rewards, catch insertion, spawn replenishment. Split into helpers (resolve_ball, roll_catch, award_milestones, record_catch).",
+    "BALL_CATCH_MULT cap at 0.97 (L1372) means lunchball×legendary(0.5) → 0.97 (saturated) which is the intent; fine. But the 0.97 ceiling silently truncates the multiplier — kid won't 'feel' the difference between rayball/myrtleball/lunchball at high base rates. Document or move ceiling to per-rarity (e.g., legendary cap 0.6) to keep ball-tier value visible.",
+    "Milestone reward query (L1433-1444) uses last_award['created_at'] cutoff and counts catches strictly greater than cutoff, then +1 for the current. If a camper somehow inserts two catches in the same ms, the ledger lookup races. Use the catch's id-based ordering or wrap in a transaction.",
+    "Earn-progress in /wallet (L2543-2557) duplicates the same query pattern as the catch handler — extract to `progress_for(camper_id, ball_type)` to avoid drift.",
+    "Bulk-upload valid_types is hard-coded at L1022 — same set must stay in sync with /app/frontend/src/lib/pokemonTypes.js (TYPE_LIST). Move to a single source (e.g., backend constants endpoint or shared JSON).",
+    "ARPage.jsx imports both RiverBall and CampBall (L9-10); RiverBall is documented as a back-compat wrapper, but both are used in render — confirm there's no duplicate ball rendered for back-compat (visual review only)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration12.py"],
+  "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% on targeted AR + selector flows"},
+  "test_credentials": "Admin admin/Camp1993; camper login = /api/groups (LIST with group_code) → /api/groups/{group_code}/campers → POST /api/camper/login {camper_id} → access_token (stored in localStorage as rrdc_user_token).",
+  "seed_data_creation": "None persisted. Bulk-upload test creates 2 pokemon and deletes them in teardown. Admin spawn-config catch_rates restored after the high-rate test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: REACT_APP_BACKEND_URL=https://river-catch-1.preview.emergentagent.com python -m pytest backend/tests/test_iteration12.py. Bulk-upload sanitizes name underscores → spaces (server.py L1053) — assert on 'TEST iter12 rock' not 'TEST_iter12_rock'. Camper login UI: at /login click button starting with group code (e.g., 'B01'), then on the camper-list page click any button NOT in {'Groups','Back','Sign in','Director'} and not matching ^[A-Z]\\d{2}$ — that's the camper card. Frontend testids: ball-selector, ball-pick-{ballId}, ball-count-{ballId}, active-spawn-name, type-badge-{type}, catch-ball-rewards, pokemon-form-type, bulk-type-{i}, river-ball. Tip: TypeBadge only renders when pokemon.type !== 'normal'.",
+  "rca of the issue": "No bugs surfaced. All P0 backend contracts (wallet shape, ball fallback, ball_used, ball_rewards, type field) and P1 frontend behaviors (BallSelector, active-spawn-name, throw animation + decrement, TypeBadge omitted for normal) are correct per spec. The /spawn/catch handler at server.py L1323 cleanly threads ball_type → BALL_CATCH_MULT[ball] → success roll → adjust_ball deduction → milestone evaluation, and persists pokemon_type onto each catch doc so /bank pipeline projects it back."
+}

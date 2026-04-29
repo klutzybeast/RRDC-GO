@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import RarityBadge from "../components/RarityBadge";
+import TypeBadge from "../components/TypeBadge";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ArrowLeft, ArrowUpDown } from "lucide-react";
@@ -137,8 +138,11 @@ export default function CollectionPage() {
                                             <span className="text-xs font-bold bg-river-100 text-river-700 px-2 py-0.5 rounded-full">×{p.count}</span>
                                         )}
                                     </div>
-                                    <div className="mt-2 flex items-center justify-between">
-                                        <RarityBadge rarity={p.rarity} />
+                                    <div className="mt-2 flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                            <RarityBadge rarity={p.rarity} />
+                                            {p.type && p.type !== "normal" && <TypeBadge type={p.type} size="sm" />}
+                                        </div>
                                         <span className="text-sm font-bold text-slate-700">PWR {p.best_power}</span>
                                     </div>
                                 </div>
@@ -163,8 +167,9 @@ export default function CollectionPage() {
                         </div>
                         <div className="mt-4 text-center">
                             <h2 className="font-heading text-3xl font-bold">{selected.name}</h2>
-                            <div className="mt-2 flex items-center justify-center gap-2">
+                            <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
                                 <RarityBadge rarity={selected.rarity} />
+                                {selected.type && selected.type !== "normal" && <TypeBadge type={selected.type} size="md" />}
                                 <span className="text-xs text-slate-500">Caught ×{selected.count}</span>
                             </div>
                             <div className="mt-4 grid grid-cols-2 gap-3">

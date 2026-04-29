@@ -7,6 +7,9 @@ import CatchSuccessModal from "../components/CatchSuccessModal";
 import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
 import RiverBall from "../components/RiverBall";
+import CampBall from "../components/CampBall";
+import BallSelector from "../components/BallSelector";
+import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
 import { toast } from "sonner";
@@ -83,12 +86,26 @@ export default function ARPage() {
     const [showBallAnim, setShowBallAnim] = useState(false);
     const [flash, setFlash] = useState("");
     const [ambient, setAmbient] = useState(null);
+    const [selectedBall, setSelectedBall] = useState("pokeball");
     const pollRef = useRef(null);
     const announcedRef = useRef(false);
 
     // Wallet
     const { wallet, refresh: refreshWallet, claimDaily } = useWallet(true);
     const [showOutOfBalls, setShowOutOfBalls] = useState(false);
+
+    // Auto-pick best ball the camper actually owns when wallet first loads,
+    // preferring fancy balls so kids see the value of what they earned.
+    useEffect(() => {
+        if (!wallet?.balances) return;
+        const bal = wallet.balances;
+        const order = ["lunchball", "myrtleball", "rayball", "pokeball"];
+        const owned = order.find((b) => Number(bal[b] || 0) > 0);
+        if (owned && Number(bal[selectedBall] || 0) === 0) {
+            setSelectedBall(owned);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wallet?.balances]);
 
     const poll = useCallback(async () => {
         try {
@@ -163,20 +180,38 @@ export default function ARPage() {
 
     const throwBall = async () => {
         if (!spawn || throwing) return;
-        if ((wallet?.balance ?? 0) < 1) {
+        const balances = wallet?.balances || {};
+        const totalBalls = Object.values(balances).reduce((s, n) => s + Number(n || 0), 0);
+        if (totalBalls < 1) {
+            setShowOutOfBalls(true);
+            return;
+        }
+        // If the selected ball is empty, fall back to the first ball with stock
+        let ball = selectedBall;
+        if (Number(balances[ball] || 0) < 1) {
+            ball = ["pokeball", "rayball", "myrtleball", "lunchball"].find((b) => Number(balances[b] || 0) > 0);
+            if (ball) setSelectedBall(ball);
+        }
+        if (!ball) {
             setShowOutOfBalls(true);
             return;
         }
         setThrowing(true);
         setShowBallAnim(true);
-        await new Promise((r) => setTimeout(r, 650));
+        // Match the ball-flight duration in the SVG below (~0.85s)
+        await new Promise((r) => setTimeout(r, 850));
         try {
-            const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id });
+            const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id, ball_type: ball });
             refreshWallet();
             if (res.data.success) {
                 setResult(res.data);
                 setSpawn(null);
                 tryPlayCatch();
+                // Toast any fancy-ball rewards earned on this catch
+                const rewards = res.data.ball_rewards || {};
+                Object.entries(rewards).forEach(([rb, n]) => {
+                    if (n > 0) toast.success(`+${n} ${rb} earned!`, { duration: 4000 });
+                });
             } else {
                 // Pokemon did NOT flee — it dodged. Let the camper try again.
                 setMissCount((n) => n + 1);
@@ -304,8 +339,11 @@ export default function ARPage() {
                     >
                         <div className="text-xs uppercase tracking-widest opacity-80">A wild</div>
                         <div className="font-heading text-2xl font-bold" data-testid="active-spawn-name">{spawn.pokemon.name}</div>
-                        <div className="mt-1 flex items-center justify-center gap-2">
+                        <div className="mt-1 flex items-center justify-center gap-2 flex-wrap">
                             <RarityBadge rarity={spawn.pokemon.rarity} />
+                            {spawn.pokemon.type && spawn.pokemon.type !== "normal" && (
+                                <TypeBadge type={spawn.pokemon.type} size="sm" />
+                            )}
                             {missCount > 0 && (
                                 <span className="text-xs opacity-75">misses: {missCount}</span>
                             )}
@@ -313,8 +351,8 @@ export default function ARPage() {
                     </motion.div>
                 )}
 
-                {/* Bottom ball */}
-                <div className="absolute bottom-6 left-0 right-0 flex items-center justify-center select-none">
+                {/* Bottom area: ball selector + throw ball */}
+                <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-3 select-none">
                     {!spawn && (
                         <div className="glass-dark rounded-2xl px-5 py-3 text-center max-w-xs" data-testid="waiting-panel">
                             <div className="font-heading text-lg font-bold">Returning to map…</div>
@@ -322,37 +360,54 @@ export default function ARPage() {
                         </div>
                     )}
                     {spawn && (
-                        <motion.div
-                            className="relative"
-                            drag={!throwing ? "y" : false}
-                            dragConstraints={{ top: -10, bottom: 0 }}
-                            dragElastic={0.4}
-                            onDragEnd={onDragEnd}
-                            whileTap={{ scale: 0.92 }}
-                            onClick={() => !throwing && throwBall()}
-                            style={{ y: ballY }}
-                            data-testid="river-ball"
-                        >
-                            {!showBallAnim && <RiverBall size={112} animate />}
-                            <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-white text-xs font-bold uppercase tracking-widest opacity-90 whitespace-nowrap">
-                                Tap or swipe up
-                            </div>
-                        </motion.div>
+                        <>
+                            <BallSelector
+                                selected={selectedBall}
+                                onSelect={setSelectedBall}
+                                balances={wallet?.balances || {}}
+                                earnProgress={wallet?.earn_progress || {}}
+                            />
+                            <motion.div
+                                className="relative"
+                                drag={!throwing ? "y" : false}
+                                dragConstraints={{ top: -10, bottom: 0 }}
+                                dragElastic={0.4}
+                                onDragEnd={onDragEnd}
+                                whileTap={{ scale: 0.92 }}
+                                onClick={() => !throwing && throwBall()}
+                                style={{ y: ballY }}
+                                data-testid="river-ball"
+                            >
+                                {!showBallAnim && <CampBall ballId={selectedBall} size={112} animate />}
+                                <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 text-white text-xs font-bold uppercase tracking-widest opacity-90 whitespace-nowrap">
+                                    Swipe up to throw
+                                </div>
+                            </motion.div>
+                        </>
                     )}
                 </div>
 
-                {/* Ball throw animation */}
+                {/* Spiral throw animation — ball arcs up, spirals inward toward the
+                    Pokemon (center of screen), shrinking + spinning aggressively. */}
                 <AnimatePresence>
                     {showBallAnim && (
                         <motion.div
                             className="absolute pointer-events-none"
-                            style={{ left: "calc(50% - 48px)", bottom: "6rem" }}
-                            initial={{ y: 0, scale: 1, opacity: 1, rotate: 0 }}
-                            animate={{ y: -400, scale: 0.25, opacity: 1, rotate: 720 }}
+                            style={{ left: "calc(50% - 48px)", bottom: "8rem" }}
+                            initial={{ x: 0, y: 0, scale: 1, opacity: 1, rotate: 0 }}
+                            animate={{
+                                // Curving arc — ball rises, curves slightly to mimic a spin throw,
+                                // and lands in the center where the Pokemon is.
+                                x: [0, 14, -6, 0],
+                                y: [0, -180, -300, -380],
+                                scale: [1, 0.8, 0.5, 0.22],
+                                rotate: [0, 540, 1080, 1620],
+                                opacity: [1, 1, 1, 0.9],
+                            }}
                             exit={{ opacity: 0 }}
-                            transition={{ duration: 0.7, ease: "easeOut" }}
+                            transition={{ duration: 0.85, ease: [0.45, 0.05, 0.55, 0.95], times: [0, 0.35, 0.7, 1] }}
                         >
-                            <RiverBall size={96} animate={false} />
+                            <CampBall ballId={selectedBall} size={96} animate={false} />
                         </motion.div>
                     )}
                 </AnimatePresence>

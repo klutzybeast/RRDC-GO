@@ -103,6 +103,7 @@ class PokemonOut(BaseModel):
     name: str
     power_level: int
     rarity: Rarity
+    type: str = "normal"
     description: str = ""
     image_data_url: str = ""
     active: bool = False
@@ -113,6 +114,7 @@ class PokemonUpdate(BaseModel):
     name: Optional[str] = None
     power_level: Optional[int] = None
     rarity: Optional[Rarity] = None
+    type: Optional[str] = None
     description: Optional[str] = None
     active: Optional[bool] = None
     image_data_url: Optional[str] = None
@@ -214,6 +216,7 @@ class SpawnPollResponse(BaseModel):
 
 class CatchAttemptReq(BaseModel):
     spawn_id: str
+    ball_type: Optional[str] = "pokeball"
 
 
 class CatchResult(BaseModel):
@@ -223,6 +226,9 @@ class CatchResult(BaseModel):
     caught_by: Optional[str] = None
     caught_at: Optional[datetime] = None
     message: str = ""
+    ball_used: Optional[str] = None
+    ball_rewards: dict = Field(default_factory=dict)  # {ball_type: count_added}
+    balances: dict = Field(default_factory=dict)  # current balances after
 
 
 class CatchRecord(BaseModel):
@@ -241,6 +247,7 @@ class BankEntry(BaseModel):
     name: str
     image_data_url: str
     rarity: Rarity
+    type: str = "normal"
     power_level: int
     description: str = ""
     count: int
@@ -906,6 +913,7 @@ def pokemon_to_out(doc: dict) -> PokemonOut:
         name=doc.get("name", ""),
         power_level=int(doc.get("power_level", 0)),
         rarity=doc.get("rarity", "common"),
+        type=doc.get("type", "normal"),
         description=doc.get("description", ""),
         image_data_url=doc.get("image_data_url", ""),
         active=bool(doc.get("active", False)),
@@ -976,6 +984,7 @@ async def admin_create_pokemon(req: PokemonUpdate, admin=Depends(get_current_adm
         "name": req.name or f"Pokemon Slot #{next_slot}",
         "power_level": int(req.power_level or 100),
         "rarity": req.rarity or "common",
+        "type": req.type or "normal",
         "description": req.description or "",
         "image_data_url": req.image_data_url or "",
         "active": bool(req.active) if req.active is not None else False,
@@ -998,17 +1007,19 @@ async def admin_bulk_upload_pokemon(
     files: List[UploadFile] = File(...),
     names: List[str] = Form([]),
     rarities: List[str] = Form([]),
+    types: List[str] = Form([]),
     descriptions: List[str] = Form([]),
     active: bool = Form(True),
     featured: bool = Form(True),
     admin=Depends(get_current_admin),
 ):
     """Upload many images at once. Optional per-image overrides via parallel arrays:
-       `names[i]`, `rarities[i]`, `descriptions[i]`. Falls back to filename for the
-       name and "common" for the rarity when not provided."""
+       `names[i]`, `rarities[i]`, `types[i]`, `descriptions[i]`. Falls back to filename for the
+       name and "common" for the rarity / "normal" type when not provided."""
     if not files:
         raise HTTPException(400, "No files provided")
     valid_rarities = {"common", "uncommon", "rare", "legendary"}
+    valid_types = {"normal", "fire", "water", "grass", "electric", "rock", "psychic", "dark", "ice", "ghost", "fighting"}
 
     last = await db.pokemon.find_one({}, sort=[("slot_number", -1)])
     next_slot = (last.get("slot_number", 0) if last else 0) + 1
@@ -1046,6 +1057,11 @@ async def admin_bulk_upload_pokemon(
             if this_rarity not in valid_rarities:
                 this_rarity = "common"
 
+            # Per-file type override; fall back to "normal"
+            this_type = types[i].strip().lower() if i < len(types) and types[i] else "normal"
+            if this_type not in valid_types:
+                this_type = "normal"
+
             # Per-file description; fall back to default
             this_desc = descriptions[i].strip() if i < len(descriptions) and descriptions[i] else f"Uploaded by admin on {now_utc().date().isoformat()}"
 
@@ -1055,6 +1071,7 @@ async def admin_bulk_upload_pokemon(
                 "name": base_name,
                 "power_level": 150 if featured else 100,
                 "rarity": this_rarity,
+                "type": this_type,
                 "description": this_desc[:500],
                 "image_data_url": data_url,
                 "active": bool(active),
@@ -1325,26 +1342,37 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     except (KeyError, ValueError):
         pass
 
-    # Require at least one ball to throw
+    # Determine which ball to throw
+    ball_type = (req.ball_type or "pokeball").lower()
+    if ball_type not in BALL_TYPES:
+        ball_type = "pokeball"
+    # Require at least one of THAT ball to throw
     wallet = await get_or_init_wallet(user["id"])
-    if int(wallet["balance"]) < 1:
-        raise HTTPException(402, "You're out of Rolling River Balls! Earn more by walking to a camp pin or come back tomorrow.")
+    if int((wallet.get("balances") or {}).get(ball_type, 0)) < 1:
+        # Fall back to pokeball if user is out of fancy ball
+        if ball_type != "pokeball" and int((wallet.get("balances") or {}).get("pokeball", 0)) >= 1:
+            ball_type = "pokeball"
+        else:
+            raise HTTPException(402, "You're out of Rolling River Balls! Earn more by walking to a camp pin or come back tomorrow.")
 
     # The spawn doc holds a SLIM pokemon (no image_data_url) to stay under
     # MongoDB's 16MB doc limit. Re-attach the image from the pokemon collection
     # so it can be saved on the catch record and returned to the camper.
     pokemon = dict(cur["pokemon"])
     if not pokemon.get("image_data_url"):
-        full = await db.pokemon.find_one({"id": cur.get("pokemon_id")}, {"_id": 0, "image_data_url": 1})
+        full = await db.pokemon.find_one({"id": cur.get("pokemon_id")}, {"_id": 0, "image_data_url": 1, "type": 1})
         if full:
             pokemon["image_data_url"] = full.get("image_data_url", "")
+            if "type" in full and not pokemon.get("type"):
+                pokemon["type"] = full.get("type")
     rarity = pokemon.get("rarity", "common")
     effective_rates = cfg.get("catch_rates") or CATCH_RATES
     base_rate = float(effective_rates.get(rarity, CATCH_RATES.get(rarity, 0.5)))
-    success = random.random() < base_rate
+    ball_mult = float(BALL_CATCH_MULT.get(ball_type, 1.0))
+    success = random.random() < min(0.97, base_rate * ball_mult)
 
-    # Deduct one ball for the throw
-    wallet = await adjust_balls(user["id"], -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
+    # Deduct one of the chosen ball
+    wallet = await adjust_ball(user["id"], ball_type, -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
 
     if not success:
         # Track misses on this spawn — flee chance escalates so the Pokemon
@@ -1368,7 +1396,9 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             return CatchResult(
                 success=False,
                 message=f"{pokemon['name']} fled after {misses} miss{'es' if misses != 1 else ''}!",
-                power_rolled=wallet["balance"],
+                power_rolled=int(wallet.get("balance", 0)),
+                ball_used=ball_type,
+                balances=wallet.get("balances") or {},
             )
 
         # Persist the new miss count back into the spawn doc
@@ -1383,12 +1413,37 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         return CatchResult(
             success=False,
             message=f"{pokemon['name']} dodged! Try again.",
-            power_rolled=wallet["balance"],
+            power_rolled=int(wallet.get("balance", 0)),
+            ball_used=ball_type,
+            balances=wallet.get("balances") or {},
         )
 
-    # Catch rewards
+    # Catch rewards — pokeballs + maybe fancy ball milestone
     reward = CATCH_REWARD.get(rarity, 0)
-    wallet = await adjust_balls(user["id"], reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"]})
+    if reward > 0:
+        wallet = await adjust_ball(user["id"], "pokeball", reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"]})
+    ball_rewards = {}
+    # Award fancy balls based on rarity milestones
+    for fancy_ball, rule in BALL_EARN_THRESHOLDS.items():
+        if rule["rarity"] != rarity:
+            continue
+        per = int(rule["catches_per_ball"])
+        # Count catches of this rarity since the last milestone reward (inclusive of the one
+        # we're about to insert).
+        last_award = await db.ball_ledger.find_one(
+            {"camper_id": user["id"], "ball_type": fancy_ball, "reason": f"{rarity}_milestone"},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        cutoff = last_award["created_at"] if last_award else None
+        q = {"group_id": user["id"], "rarity": rarity}
+        if cutoff:
+            q["caught_at"] = {"$gt": cutoff}
+        existing = await db.catches.count_documents(q)
+        # +1 for the catch we're about to record
+        if (existing + 1) >= per:
+            wallet = await adjust_ball(user["id"], fancy_ball, 1, f"{rarity}_milestone", {"pokemon_id": pokemon["id"]})
+            ball_rewards[fancy_ball] = ball_rewards.get(fancy_ball, 0) + 1
 
     base_pl = int(pokemon.get("power_level", 100))
     power_rolled = max(1, min(1000, random.randint(max(1, int(base_pl * 0.7)), base_pl)))
@@ -1404,7 +1459,9 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         "pokemon_name": pokemon["name"],
         "pokemon_image": pokemon.get("image_data_url", ""),
         "pokemon_description": pokemon.get("description", ""),
+        "pokemon_type": pokemon.get("type", "normal"),
         "rarity": rarity,
+        "ball_type": ball_type,
         "power_rolled": power_rolled,
         "caught_at": caught_at,
     }
@@ -1423,13 +1480,20 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             "next_spawn_at": next_at,
         }},
     )
+    bonus_text = ""
+    if ball_rewards:
+        parts = [f"+{n} {b}" for b, n in ball_rewards.items()]
+        bonus_text = " — " + ", ".join(parts) + "!"
     return CatchResult(
         success=True,
         pokemon=pokemon_to_out(pokemon),
         power_rolled=power_rolled,
         caught_by=user["username"],
         caught_at=datetime.fromisoformat(caught_at),
-        message=f"Caught {pokemon['name']}! +{reward} balls",
+        message=f"Caught {pokemon['name']}! +{reward} balls{bonus_text}",
+        ball_used=ball_type,
+        ball_rewards=ball_rewards,
+        balances=wallet.get("balances") or {},
     )
 
 
@@ -1493,6 +1557,7 @@ async def bank(user=Depends(get_current_user)):
             "image": {"$first": "$pokemon_image"},
             "description": {"$first": "$pokemon_description"},
             "rarity": {"$first": "$rarity"},
+            "type": {"$first": "$pokemon_type"},
             "count": {"$sum": 1},
             "last_caught_at": {"$first": "$caught_at"},
             "best_power": {"$max": "$power_rolled"},
@@ -1507,6 +1572,7 @@ async def bank(user=Depends(get_current_user)):
             name=d["name"],
             image_data_url=d.get("image", "") or "",
             rarity=d.get("rarity", "common"),
+            type=d.get("type") or "normal",
             power_level=int(d.get("best_power", 0)),
             description=d.get("description", "") or "",
             count=int(d["count"]),
@@ -2323,17 +2389,76 @@ PIN_BONUS = 5
 PIN_PROXIMITY_METERS = 15  # server-side validation radius
 CATCH_REWARD = {"common": 1, "uncommon": 2, "rare": 5, "legendary": 15}
 
+# Ball types — kids unlock the fancier ones by catching pokemon of that rarity.
+# - pokeball: standard, 1.0x catch rate.
+# - rayball: earned every N uncommons, 1.4x catch rate.
+# - myrtleball: earned every N rares, 1.8x catch rate.
+# - lunchball: earned 1-for-1 per legendary caught, 2.5x catch rate.
+BALL_TYPES = ["pokeball", "rayball", "myrtleball", "lunchball"]
+BALL_CATCH_MULT = {
+    "pokeball":   1.0,
+    "rayball":    1.4,
+    "myrtleball": 1.8,
+    "lunchball":  2.5,
+}
+# Catch this many of the rarity to earn one of the fancier ball.
+BALL_EARN_THRESHOLDS = {
+    "rayball":    {"rarity": "uncommon",  "catches_per_ball": 5},
+    "myrtleball": {"rarity": "rare",      "catches_per_ball": 3},
+    "lunchball":  {"rarity": "legendary", "catches_per_ball": 1},
+}
+
+
+def empty_balances() -> dict:
+    return {b: 0 for b in BALL_TYPES}
+
 
 async def get_or_init_wallet(camper_id: str) -> dict:
     w = await db.camper_wallets.find_one({"camper_id": camper_id}, {"_id": 0})
-    if w:
-        return w
     now = now_utc().isoformat()
-    w = {"camper_id": camper_id, "balance": STARTING_BALLS, "starting_granted": True, "updated_at": now, "created_at": now}
+    if w:
+        # Migration: ensure balances dict exists and back-compat balance maps
+        # to pokeball. Do an in-place upgrade once per wallet.
+        balances = w.get("balances")
+        legacy = int(w.get("balance", 0))
+        if not isinstance(balances, dict):
+            balances = empty_balances()
+            balances["pokeball"] = legacy
+            await db.camper_wallets.update_one(
+                {"camper_id": camper_id},
+                {"$set": {"balances": balances, "updated_at": now}},
+            )
+        else:
+            # Make sure all keys are present
+            changed = False
+            for b in BALL_TYPES:
+                if b not in balances:
+                    balances[b] = 0
+                    changed = True
+            if changed:
+                await db.camper_wallets.update_one(
+                    {"camper_id": camper_id},
+                    {"$set": {"balances": balances, "updated_at": now}},
+                )
+        w["balances"] = balances
+        # Keep legacy single field reflecting pokeball count.
+        w["balance"] = int(balances.get("pokeball", 0))
+        return w
+    balances = empty_balances()
+    balances["pokeball"] = STARTING_BALLS
+    w = {
+        "camper_id": camper_id,
+        "balance": STARTING_BALLS,  # legacy mirror of pokeball
+        "balances": balances,
+        "starting_granted": True,
+        "updated_at": now,
+        "created_at": now,
+    }
     await db.camper_wallets.insert_one(w)
     await db.ball_ledger.insert_one({
         "id": str(uuid.uuid4()),
         "camper_id": camper_id,
+        "ball_type": "pokeball",
         "delta": STARTING_BALLS,
         "reason": "starter",
         "meta": {},
@@ -2343,26 +2468,42 @@ async def get_or_init_wallet(camper_id: str) -> dict:
     return w
 
 
-async def adjust_balls(camper_id: str, delta: int, reason: str, meta: dict = None) -> dict:
-    """Atomically update balance and record ledger entry. Returns updated wallet."""
+async def adjust_ball(camper_id: str, ball_type: str, delta: int, reason: str, meta: dict = None) -> dict:
+    """Atomically update one ball-type balance and record ledger entry."""
+    if ball_type not in BALL_TYPES:
+        raise HTTPException(400, f"Unknown ball type: {ball_type}")
     wallet = await get_or_init_wallet(camper_id)
-    new_balance = max(0, int(wallet["balance"]) + int(delta))
+    balances = dict(wallet["balances"])
+    new_count = max(0, int(balances.get(ball_type, 0)) + int(delta))
+    balances[ball_type] = new_count
     now = now_utc().isoformat()
+    update_doc = {"balances": balances, "updated_at": now}
+    if ball_type == "pokeball":
+        # Legacy mirror so any older code reading wallet["balance"] still works.
+        update_doc["balance"] = new_count
     await db.camper_wallets.update_one(
         {"camper_id": camper_id},
-        {"$set": {"balance": new_balance, "updated_at": now}},
+        {"$set": update_doc},
     )
     await db.ball_ledger.insert_one({
         "id": str(uuid.uuid4()),
         "camper_id": camper_id,
+        "ball_type": ball_type,
         "delta": int(delta),
         "reason": reason,
         "meta": meta or {},
-        "balance_after": new_balance,
+        "balance_after": new_count,
         "created_at": now,
     })
-    wallet["balance"] = new_balance
+    wallet["balances"] = balances
+    if ball_type == "pokeball":
+        wallet["balance"] = new_count
     return wallet
+
+
+async def adjust_balls(camper_id: str, delta: int, reason: str, meta: dict = None) -> dict:
+    """Back-compat: legacy 'balls' adjustment maps to the pokeball pool."""
+    return await adjust_ball(camper_id, "pokeball", delta, reason, meta)
 
 
 async def last_ledger_by_reason(camper_id: str, reason: str, since: Optional[datetime] = None) -> Optional[dict]:
@@ -2374,13 +2515,17 @@ async def last_ledger_by_reason(camper_id: str, reason: str, since: Optional[dat
 
 
 class WalletOut(BaseModel):
-    balance: int
+    balance: int  # legacy = pokeball count
+    balances: dict = Field(default_factory=empty_balances)
     starting_balance: int = STARTING_BALLS
     daily_bonus: int = DAILY_BONUS
     pin_bonus: int = PIN_BONUS
     catch_reward: dict = CATCH_REWARD
     can_claim_daily: bool = True
     next_daily_at: Optional[datetime] = None
+    ball_catch_mult: dict = Field(default_factory=lambda: BALL_CATCH_MULT.copy())
+    ball_earn_thresholds: dict = Field(default_factory=lambda: BALL_EARN_THRESHOLDS.copy())
+    earn_progress: dict = Field(default_factory=dict)
 
 
 @api.get("/wallet", response_model=WalletOut)
@@ -2393,7 +2538,30 @@ async def get_wallet(user=Depends(get_current_user)):
     if last_daily:
         last_at = datetime.fromisoformat(last_daily["created_at"])
         next_at = last_at + timedelta(hours=24)
-    return WalletOut(balance=int(w["balance"]), can_claim_daily=can, next_daily_at=next_at)
+    # Compute progress towards next earned ball — count catches per rarity
+    # since the last fancy-ball reward of that type (or all-time if never).
+    progress = {}
+    for ball, rule in BALL_EARN_THRESHOLDS.items():
+        rarity = rule["rarity"]
+        per = int(rule["catches_per_ball"])
+        last_award = await db.ball_ledger.find_one(
+            {"camper_id": user["id"], "ball_type": ball, "reason": f"{rarity}_milestone"},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        cutoff = last_award["created_at"] if last_award else None
+        q = {"group_id": user["id"], "rarity": rarity}
+        if cutoff:
+            q["caught_at"] = {"$gt": cutoff}
+        catches_since = await db.catches.count_documents(q)
+        progress[ball] = {"have": catches_since % per, "need": per, "rarity": rarity}
+    return WalletOut(
+        balance=int(w.get("balance", w.get("balances", {}).get("pokeball", 0))),
+        balances=w.get("balances") or empty_balances(),
+        can_claim_daily=can,
+        next_daily_at=next_at,
+        earn_progress=progress,
+    )
 
 
 @api.post("/wallet/claim-daily")
