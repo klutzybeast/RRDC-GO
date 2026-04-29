@@ -133,7 +133,7 @@ class SpawnConfig(BaseModel):
     rarity_weights: dict = Field(default_factory=lambda: DEFAULT_RARITY_WEIGHTS.copy())
     catch_rates: dict = Field(default_factory=lambda: CATCH_RATES.copy())
     catch_radius_meters: int = 40  # How close a camper must be to a spawn to catch it
-    featured_weight_multiplier: float = 10.0  # admin-marked "supervisor" pokemon spawn 10x more often
+    featured_weight_multiplier: float = 3.0  # admin-marked "supervisor" pokemon spawn 3x more often
     camp_latitude: float = 40.6396
     camp_longitude: float = -73.6665
     camp_default_zoom: int = 18
@@ -583,8 +583,9 @@ async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False, exclude_id
             return random.choice(pool)
         # Fall through to normal pick if no featured exist
 
-    # Try up to 4 times to get a rarity with actual active pokemon
-    for _ in range(4):
+    # Try up to 6 times to get a rarity with actual active pokemon AND
+    # a candidate that hasn't already been placed in this burst.
+    for _ in range(6):
         rarity = pick_rarity(weights)
         docs = await db.pokemon.find(
             {"active": True, "rarity": rarity},
@@ -592,16 +593,21 @@ async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False, exclude_id
         ).to_list(500)
         if not docs:
             continue
-        # Weight featured pokemon higher so admin-uploaded "supervisor" pokemon
-        # appear more often around camp.
-        weights_list = [featured_boost if d.get("featured") else 1.0 for d in docs]
-        return random.choices(docs, weights=weights_list, k=1)[0]
-    # Fallback: any active pokemon (still weighted)
+        # Prefer pokemon not already in the burst — VARIETY over featured boost.
+        fresh = [d for d in docs if d["id"] not in exclude_ids]
+        pool = fresh if fresh else docs
+        # Featured weighting is gentler now (×3) so non-supervisor pokemon
+        # actually show up regularly.
+        weights_list = [featured_boost if d.get("featured") else 1.0 for d in pool]
+        return random.choices(pool, weights=weights_list, k=1)[0]
+    # Fallback: any active pokemon, still excluding duplicates if possible
     docs = await db.pokemon.find({"active": True}, {"_id": 0}).to_list(1000)
     if not docs:
         return None
-    weights_list = [featured_boost if d.get("featured") else 1.0 for d in docs]
-    return random.choices(docs, weights=weights_list, k=1)[0]
+    fresh = [d for d in docs if d["id"] not in exclude_ids]
+    pool = fresh if fresh else docs
+    weights_list = [featured_boost if d.get("featured") else 1.0 for d in pool]
+    return random.choices(pool, weights=weights_list, k=1)[0]
 
 
 async def get_or_create_group_state(group_id: str) -> dict:
@@ -729,10 +735,11 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
         needed = 1
 
     # How many active "supervisor" (featured) pokemon does the camp have?
-    # Force EACH of them to spawn first in the burst so every supervisor gets
-    # represented before the rarity RNG kicks in for the remaining slots.
+    # Force at most HALF of the burst to be featured supervisors so the rest
+    # are filled with regular pokemon — gives the camper variety in the air
+    # at the same time.
     featured_count = await db.pokemon.count_documents({"active": True, "featured": True})
-    forced_featured_remaining = min(featured_count, needed)
+    forced_featured_remaining = min(featured_count, max(1, needed // 2))
     placed_ids = {s.get("pokemon_id") for s in current if s}
 
     created = 0

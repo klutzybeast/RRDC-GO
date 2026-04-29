@@ -152,13 +152,15 @@ export default function MapPage() {
             setEnabled(res.data.enabled);
             const list = Array.isArray(res.data.spawns) ? res.data.spawns : [];
             setSpawns(list);
-            // Toast for any newly-appeared spawn this session
+            // Quietly track newly-appeared spawns. We don't toast a banner
+            // anymore — the markers on the map and the Nearby panel already
+            // tell the camper what's around. We still trigger the legendary
+            // sound + visual banner because that's a special moment.
             const seen = seenSpawnIdsRef.current;
             for (const s of list) {
                 if (!seen.has(s.spawn_id)) {
                     seen.add(s.spawn_id);
                     if (s.pokemon.rarity === "legendary") {
-                        toast.success(`⚡ LEGENDARY ${s.pokemon.name} appeared!`, { duration: 5000 });
                         setLegendaryAlert({
                             id: s.spawn_id,
                             name: s.pokemon.name,
@@ -168,7 +170,6 @@ export default function MapPage() {
                         tryPlayLegendary();
                         if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
                     } else {
-                        toast.success(`A wild ${s.pokemon.name} appeared!`, { duration: 3500 });
                         tryPlaySpawn();
                         if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
                     }
