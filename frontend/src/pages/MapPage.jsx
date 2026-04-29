@@ -15,6 +15,7 @@ import RiverBall from "../components/RiverBall";
 import TrainerAvatar from "../components/TrainerAvatar";
 import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
 import SupervisorChallenge from "../components/SupervisorChallenge";
+import ChallengesCard from "../components/ChallengesCard";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -584,9 +585,12 @@ export default function MapPage() {
                 </div>
             </div>
 
-            {/* Supervisor challenge banner */}
-            <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto">
+            {/* Supervisor challenge banner + Daily challenges */}
+            <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto space-y-2">
                 <SupervisorChallenge compact />
+                <div className="flex justify-end">
+                    <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                </div>
             </div>
 
             {/* Bottom hud */}

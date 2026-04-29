@@ -2705,6 +2705,180 @@ async def admin_fix_backgrounds_status(admin=Depends(get_current_admin)):
     return _fix_bg_job_state
 
 
+# ----------------------
+# DAILY CHALLENGES
+# Templated challenges generated deterministically per (camper, date). Three
+# per day, mix of easy/medium/hard. Progress is computed at read-time from
+# the day's catches/throws, no separate counter needed. Claim awards
+# pokeballs into the wallet.
+# ----------------------
+CHALLENGE_TEMPLATES = [
+    # id, label, target, reward (pokeballs), tier
+    {"id": "catch_3_today",     "label": "Catch any 3 Pokemon today",       "target": 3,  "reward": 10, "tier": "easy",   "kind": "catch_total"},
+    {"id": "catch_5_today",     "label": "Catch any 5 Pokemon today",       "target": 5,  "reward": 20, "tier": "medium", "kind": "catch_total"},
+    {"id": "catch_8_today",     "label": "Catch 8 Pokemon today",           "target": 8,  "reward": 40, "tier": "hard",   "kind": "catch_total"},
+    {"id": "catch_uncommon",    "label": "Catch an uncommon Pokemon",       "target": 1,  "reward": 8,  "tier": "easy",   "kind": "catch_rarity", "rarity": "uncommon"},
+    {"id": "catch_rare",        "label": "Catch a rare Pokemon",            "target": 1,  "reward": 15, "tier": "medium", "kind": "catch_rarity", "rarity": "rare"},
+    {"id": "catch_legendary",   "label": "Catch a LEGENDARY",               "target": 1,  "reward": 50, "tier": "hard",   "kind": "catch_rarity", "rarity": "legendary"},
+    {"id": "catch_supervisor",  "label": "Catch a featured supervisor",     "target": 1,  "reward": 12, "tier": "medium", "kind": "catch_featured"},
+    {"id": "throw_10",          "label": "Throw 10 Rolling River Balls",    "target": 10, "reward": 6,  "tier": "easy",   "kind": "throw_count"},
+    {"id": "throw_20",          "label": "Throw 20 balls today",            "target": 20, "reward": 15, "tier": "medium", "kind": "throw_count"},
+    {"id": "use_fancy_ball",    "label": "Catch one with a fancy ball",     "target": 1,  "reward": 12, "tier": "medium", "kind": "use_fancy_ball"},
+    {"id": "walk_500m",         "label": "Walk 500m around camp",           "target": 500, "reward": 8, "tier": "easy",   "kind": "walk_meters"},
+    {"id": "walk_1500m",        "label": "Walk 1500m today",                "target": 1500,"reward": 25,"tier": "hard",   "kind": "walk_meters"},
+    {"id": "claim_pin",         "label": "Find and claim a camp pin",       "target": 1,  "reward": 5,  "tier": "easy",   "kind": "pin_claim"},
+    {"id": "two_types",         "label": "Catch 2 different types today",   "target": 2,  "reward": 12, "tier": "medium", "kind": "distinct_types"},
+    {"id": "three_types",       "label": "Catch 3 different types today",   "target": 3,  "reward": 25, "tier": "hard",   "kind": "distinct_types"},
+]
+
+
+def _today_ymd() -> str:
+    return now_utc().astimezone().date().isoformat()
+
+
+def _today_start_iso() -> str:
+    """Start of the local day, returned as an ISO string for direct compare
+    against caught_at strings stored in the catches collection."""
+    local = now_utc().astimezone()
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(timezone.utc).isoformat()
+
+
+def _pick_daily_challenges(camper_id: str, ymd: str) -> List[dict]:
+    """Deterministic mix: 1 easy + 1 medium + 1 hard. Same camper+date always
+    gets the same 3 challenges so reloads don't reshuffle them."""
+    seed = hash((camper_id, ymd)) & 0xFFFFFFFF
+    rng = random.Random(seed)
+    by_tier = {"easy": [], "medium": [], "hard": []}
+    for c in CHALLENGE_TEMPLATES:
+        by_tier[c["tier"]].append(c)
+    picks = []
+    for tier in ("easy", "medium", "hard"):
+        if by_tier[tier]:
+            picks.append(rng.choice(by_tier[tier]))
+    return picks
+
+
+async def _challenge_progress(user: dict, ch: dict) -> int:
+    """Compute current progress count for one challenge from live data."""
+    cid = user["id"]
+    today_iso = _today_start_iso()
+    kind = ch["kind"]
+    if kind == "catch_total":
+        return await db.catches.count_documents({
+            "group_id": cid,
+            "caught_at": {"$gte": today_iso},
+        })
+    if kind == "catch_rarity":
+        return await db.catches.count_documents({
+            "group_id": cid,
+            "rarity": ch["rarity"],
+            "caught_at": {"$gte": today_iso},
+        })
+    if kind == "catch_featured":
+        # Featured pokemon ids
+        fids = [p["id"] async for p in db.pokemon.find({"featured": True}, {"id": 1, "_id": 0})]
+        if not fids:
+            return 0
+        return await db.catches.count_documents({
+            "group_id": cid,
+            "pokemon_id": {"$in": fids},
+            "caught_at": {"$gte": today_iso},
+        })
+    if kind == "throw_count":
+        return await db.ball_ledger.count_documents({
+            "camper_id": cid,
+            "reason": "throw",
+            "created_at": {"$gte": today_iso},
+        })
+    if kind == "use_fancy_ball":
+        return await db.ball_ledger.count_documents({
+            "camper_id": cid,
+            "reason": "throw",
+            "ball_type": {"$in": ["rayball", "myrtleball", "lunchball"]},
+            "created_at": {"$gte": today_iso},
+        })
+    if kind == "walk_meters":
+        pos = await db.camper_positions.find_one({"camper_id": cid}, {"_id": 0})
+        if not pos:
+            return 0
+        # daily_distance_m resets when a new local day starts
+        if pos.get("date_ymd") != _today_ymd():
+            return 0
+        return int(pos.get("daily_distance_m", 0))
+    if kind == "pin_claim":
+        return await db.ball_ledger.count_documents({
+            "camper_id": cid,
+            "reason": "pin_bonus",
+            "created_at": {"$gte": today_iso},
+        })
+    if kind == "distinct_types":
+        types = await db.catches.distinct("pokemon_type", {
+            "group_id": cid,
+            "caught_at": {"$gte": today_iso},
+        })
+        return len([t for t in types if t])
+    return 0
+
+
+async def _was_claimed(camper_id: str, challenge_id: str, ymd: str) -> bool:
+    doc = await db.ball_ledger.find_one({
+        "camper_id": camper_id,
+        "reason": "challenge_complete",
+        "meta.challenge_id": challenge_id,
+        "meta.ymd": ymd,
+    }, {"_id": 0})
+    return doc is not None
+
+
+@api.get("/challenges/today")
+async def challenges_today(user=Depends(get_current_user)):
+    ymd = _today_ymd()
+    picks = _pick_daily_challenges(user["id"], ymd)
+    out = []
+    for ch in picks:
+        progress = await _challenge_progress(user, ch)
+        claimed = await _was_claimed(user["id"], ch["id"], ymd)
+        out.append({
+            "id": ch["id"],
+            "label": ch["label"],
+            "tier": ch["tier"],
+            "target": ch["target"],
+            "progress": min(progress, ch["target"]),
+            "completed": progress >= ch["target"],
+            "claimed": claimed,
+            "reward": ch["reward"],
+            "kind": ch["kind"],
+        })
+    return {"date": ymd, "challenges": out}
+
+
+@api.post("/challenges/{challenge_id}/claim")
+async def challenges_claim(challenge_id: str, user=Depends(get_current_user)):
+    ymd = _today_ymd()
+    picks = _pick_daily_challenges(user["id"], ymd)
+    ch = next((c for c in picks if c["id"] == challenge_id), None)
+    if not ch:
+        raise HTTPException(404, "Challenge not active today")
+    if await _was_claimed(user["id"], challenge_id, ymd):
+        raise HTTPException(400, "Already claimed")
+    progress = await _challenge_progress(user, ch)
+    if progress < ch["target"]:
+        raise HTTPException(400, f"Not complete yet ({progress}/{ch['target']})")
+    wallet = await adjust_ball(
+        user["id"], "pokeball", int(ch["reward"]),
+        "challenge_complete",
+        {"challenge_id": challenge_id, "ymd": ymd, "label": ch["label"]},
+    )
+    return {
+        "ok": True,
+        "challenge_id": challenge_id,
+        "reward": int(ch["reward"]),
+        "balance": int(wallet.get("balance", 0)),
+        "balances": wallet.get("balances") or {},
+    }
+
+
 # Mount router
 app.include_router(api)
 
