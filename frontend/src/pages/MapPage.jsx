@@ -188,7 +188,7 @@ export default function MapPage() {
         return () => clearInterval(pollRef.current);
     }, [poll]);
 
-    // Fetch pins + spawn config (for camp center fallback)
+    // Fetch pins + camp center config
     useEffect(() => {
         userApi.get("/map-pins").then((r) => {
             setPins(r.data);
@@ -196,9 +196,6 @@ export default function MapPage() {
                 const lat = r.data.reduce((s, p) => s + p.latitude, 0) / r.data.length;
                 const lng = r.data.reduce((s, p) => s + p.longitude, 0) / r.data.length;
                 setCenter({ lat, lng });
-            } else {
-                // No pins — fall back to admin-configured camp center
-                userApi.get("/spawn/current").catch(() => {});
             }
         }).catch(() => {});
         // Load camp center from public config endpoint

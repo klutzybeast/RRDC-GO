@@ -629,6 +629,22 @@ def jitter_location(lat: float, lng: float, min_m: float = 8.0, max_m: float = 3
     return lat + dlat, lng + dlng
 
 
+def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two points in meters."""
+    R = 6371000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+# How far an existing spawn can be from the camper before we relocate it.
+# Anything past this gets dropped so a fresh spawn appears near the camper.
+STALE_SPAWN_RELOCATE_M = 250.0
+
+
 async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[float] = None, camper_lng: Optional[float] = None) -> dict:
     """Return the refreshed group state, creating new spawns up to max_active_spawns."""
     state = await get_or_create_group_state(group_id)
@@ -649,7 +665,36 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
             pass
     current = fresh
 
+    # If we have a current GPS fix, drop any spawn that is too far away
+    # (camper has clearly moved). This guarantees Pokemon always appear near
+    # whoever is actively playing — not at camp coords or some old pin.
+    if camper_lat is not None and camper_lng is not None:
+        try:
+            clat = float(camper_lat)
+            clng = float(camper_lng)
+            current = [
+                s for s in current
+                if s.get("latitude") is not None
+                and s.get("longitude") is not None
+                and haversine_m(clat, clng, float(s["latitude"]), float(s["longitude"])) <= STALE_SPAWN_RELOCATE_M
+            ]
+        except (TypeError, ValueError):
+            pass
+
     if not cfg.get("enabled", True) or not is_within_active_hours(cfg):
+        state["current_spawns"] = current
+        await db.group_spawns.update_one(
+            {"group_id": group_id},
+            {"$set": {"current_spawns": current, "current_spawn": None}},
+        )
+        return state
+
+    # CRITICAL: with 800 kids playing from anywhere, we MUST know where the
+    # camper actually is before placing a spawn. If no GPS yet, return the
+    # current (possibly empty) list and wait for the next poll. This prevents
+    # spawns from ever landing at camp coords / map pins for a kid who's
+    # somewhere completely different.
+    if camper_lat is None or camper_lng is None:
         state["current_spawns"] = current
         await db.group_spawns.update_one(
             {"group_id": group_id},
@@ -692,23 +737,9 @@ async def maybe_create_spawn(group_id: str, cfg: dict, camper_lat: Optional[floa
             forced_featured_remaining -= 1
         placed_ids.add(pokemon["id"])
 
-        lat, lng, pin_name, pin_id = None, None, None, None
-        if camper_lat is not None and camper_lng is not None:
-            # Tight cluster around the camper — within easy walking distance
-            # so kids don't lose interest hunting for them.
-            lat, lng = jitter_location(float(camper_lat), float(camper_lng), 3, 15)
-            pin_name = "Nearby"
-        else:
-            pin = await pick_map_pin()
-            if pin:
-                lat, lng = jitter_location(pin.get("latitude"), pin.get("longitude"), 3, 15)
-                pin_name = pin.get("name")
-                pin_id = pin.get("id")
-            else:
-                clat = float(cfg.get("camp_latitude", 40.6396))
-                clng = float(cfg.get("camp_longitude", -73.6665))
-                lat, lng = jitter_location(clat, clng, 5, 20)
-                pin_name = "Camp"
+        lat, lng = jitter_location(float(camper_lat), float(camper_lng), 3, 15)
+        pin_name = "Nearby"
+        pin_id = None
 
         ttl = int(cfg.get("spawn_ttl_seconds", 600))
         # Store a SLIM pokemon (no image) to avoid blowing past Mongo's 16MB
