@@ -58,7 +58,7 @@ logging.basicConfig(level=logging.INFO)
 Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
-CATCH_RATES = {"common": 0.40, "uncommon": 0.35, "rare": 0.28, "legendary": 0.30}
+CATCH_RATES = {"common": 0.78, "uncommon": 0.62, "rare": 0.45, "legendary": 0.35}
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
 
