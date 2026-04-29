@@ -2724,58 +2724,58 @@ async def admin_fix_backgrounds_status(admin=Depends(get_current_admin)):
 # once they claim it.
 # ----------------------
 CHALLENGE_TEMPLATES = [
-    # DAILY (15)
-    {"id": "d_catch_3",        "label": "Catch any 3 Pokemon today",       "target": 3,  "reward": 10, "tier": "easy",   "kind": "catch_total",     "period": "daily"},
-    {"id": "d_catch_5",        "label": "Catch any 5 Pokemon today",       "target": 5,  "reward": 20, "tier": "medium", "kind": "catch_total",     "period": "daily"},
-    {"id": "d_catch_8",        "label": "Catch 8 Pokemon today",           "target": 8,  "reward": 40, "tier": "hard",   "kind": "catch_total",     "period": "daily"},
-    {"id": "d_uncommon",       "label": "Catch an uncommon Pokemon",       "target": 1,  "reward": 8,  "tier": "easy",   "kind": "catch_rarity",    "rarity": "uncommon",  "period": "daily"},
-    {"id": "d_rare",           "label": "Catch a rare Pokemon",            "target": 1,  "reward": 15, "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "daily"},
-    {"id": "d_legendary",      "label": "Catch a LEGENDARY",               "target": 1,  "reward": 50, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "daily"},
-    {"id": "d_supervisor",     "label": "Catch a featured supervisor",     "target": 1,  "reward": 12, "tier": "medium", "kind": "catch_featured",  "period": "daily"},
-    {"id": "d_throw_10",       "label": "Throw 10 Rolling River Balls",    "target": 10, "reward": 6,  "tier": "easy",   "kind": "throw_count",     "period": "daily"},
-    {"id": "d_throw_20",       "label": "Throw 20 balls today",            "target": 20, "reward": 15, "tier": "medium", "kind": "throw_count",     "period": "daily"},
-    {"id": "d_use_fancy",      "label": "Catch one with a fancy ball",     "target": 1,  "reward": 12, "tier": "medium", "kind": "use_fancy_ball",  "period": "daily"},
-    {"id": "d_walk_500",       "label": "Walk 500m around camp",           "target": 500, "reward": 8, "tier": "easy",   "kind": "walk_meters",     "period": "daily"},
-    {"id": "d_walk_1500",      "label": "Walk 1500m today",                "target": 1500,"reward": 25,"tier": "hard",   "kind": "walk_meters",     "period": "daily"},
-    {"id": "d_pin",            "label": "Find and claim a camp pin",       "target": 1,  "reward": 5,  "tier": "easy",   "kind": "pin_claim",       "period": "daily"},
-    {"id": "d_two_types",      "label": "Catch 2 different types today",   "target": 2,  "reward": 12, "tier": "medium", "kind": "distinct_types",  "period": "daily"},
-    {"id": "d_three_types",    "label": "Catch 3 different types today",   "target": 3,  "reward": 25, "tier": "hard",   "kind": "distinct_types",  "period": "daily"},
+    # Daily — most reward Pokeballs but a few harder ones reward fancy balls.
+    {"id": "d_catch_3",        "label": "Catch any 3 Pokemon today",       "target": 3,  "reward": 10, "reward_ball": "pokeball",   "tier": "easy",   "kind": "catch_total",     "period": "daily"},
+    {"id": "d_catch_5",        "label": "Catch any 5 Pokemon today",       "target": 5,  "reward": 20, "reward_ball": "pokeball",   "tier": "medium", "kind": "catch_total",     "period": "daily"},
+    {"id": "d_catch_8",        "label": "Catch 8 Pokemon today",           "target": 8,  "reward": 1,  "reward_ball": "rayball",    "tier": "hard",   "kind": "catch_total",     "period": "daily"},
+    {"id": "d_uncommon",       "label": "Catch an uncommon Pokemon",       "target": 1,  "reward": 8,  "reward_ball": "pokeball",   "tier": "easy",   "kind": "catch_rarity",    "rarity": "uncommon",  "period": "daily"},
+    {"id": "d_rare",           "label": "Catch a rare Pokemon",            "target": 1,  "reward": 1,  "reward_ball": "rayball",    "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "daily"},
+    {"id": "d_legendary",      "label": "Catch a LEGENDARY",               "target": 1,  "reward": 1,  "reward_ball": "myrtleball", "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "daily"},
+    {"id": "d_supervisor",     "label": "Catch a featured supervisor",     "target": 1,  "reward": 12, "reward_ball": "pokeball",   "tier": "medium", "kind": "catch_featured",  "period": "daily"},
+    {"id": "d_throw_10",       "label": "Throw 10 Rolling River Balls",    "target": 10, "reward": 6,  "reward_ball": "pokeball",   "tier": "easy",   "kind": "throw_count",     "period": "daily"},
+    {"id": "d_throw_20",       "label": "Throw 20 balls today",            "target": 20, "reward": 15, "reward_ball": "pokeball",   "tier": "medium", "kind": "throw_count",     "period": "daily"},
+    {"id": "d_use_fancy",      "label": "Catch one with a Rayball",        "target": 1,  "reward": 1,  "reward_ball": "myrtleball", "tier": "medium", "kind": "use_fancy_ball",  "period": "daily"},
+    {"id": "d_walk_500",       "label": "Walk 500m around camp",           "target": 500, "reward": 8, "reward_ball": "pokeball",   "tier": "easy",   "kind": "walk_meters",     "period": "daily"},
+    {"id": "d_walk_1500",      "label": "Walk 1500m today",                "target": 1500,"reward": 1, "reward_ball": "rayball",    "tier": "hard",   "kind": "walk_meters",     "period": "daily"},
+    {"id": "d_pin",            "label": "Find and claim a camp pin",       "target": 1,  "reward": 5,  "reward_ball": "pokeball",   "tier": "easy",   "kind": "pin_claim",       "period": "daily"},
+    {"id": "d_two_types",      "label": "Catch 2 different types today",   "target": 2,  "reward": 12, "reward_ball": "pokeball",   "tier": "medium", "kind": "distinct_types",  "period": "daily"},
+    {"id": "d_three_types",    "label": "Catch 3 different types today",   "target": 3,  "reward": 1,  "reward_ball": "rayball",    "tier": "hard",   "kind": "distinct_types",  "period": "daily"},
 
-    # WEEKLY (10)
-    {"id": "w_catch_20",       "label": "Catch 20 Pokemon this week",      "target": 20, "reward": 30,  "tier": "easy",   "kind": "catch_total",     "period": "weekly"},
-    {"id": "w_catch_40",       "label": "Catch 40 Pokemon this week",      "target": 40, "reward": 80,  "tier": "medium", "kind": "catch_total",     "period": "weekly"},
-    {"id": "w_catch_60",       "label": "Catch 60 Pokemon this week",      "target": 60, "reward": 140, "tier": "hard",   "kind": "catch_total",     "period": "weekly"},
-    {"id": "w_5_rares",        "label": "Catch 5 rare Pokemon this week",  "target": 5,  "reward": 75,  "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "weekly"},
-    {"id": "w_2_legendary",    "label": "Catch 2 legendaries this week",   "target": 2,  "reward": 120, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "weekly"},
-    {"id": "w_walk_5km",       "label": "Walk 5 km this week",             "target": 5000,"reward": 40, "tier": "easy",   "kind": "walk_meters",     "period": "weekly"},
-    {"id": "w_walk_10km",      "label": "Walk 10 km this week",            "target": 10000,"reward": 90,"tier": "medium", "kind": "walk_meters",     "period": "weekly"},
-    {"id": "w_5_types",        "label": "Catch 5 different types this week","target": 5, "reward": 60,  "tier": "medium", "kind": "distinct_types",  "period": "weekly"},
-    {"id": "w_10_supervisors", "label": "Catch 10 supervisors this week",  "target": 10, "reward": 100, "tier": "hard",   "kind": "catch_featured",  "period": "weekly"},
-    {"id": "w_fancy_10",       "label": "Use 10 fancy balls this week",    "target": 10, "reward": 80,  "tier": "medium", "kind": "use_fancy_ball",  "period": "weekly"},
+    # Weekly — bigger payouts, mostly Rayballs and Myrtleballs.
+    {"id": "w_catch_20",       "label": "Catch 20 Pokemon this week",      "target": 20, "reward": 30,  "reward_ball": "pokeball",    "tier": "easy",   "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_catch_40",       "label": "Catch 40 Pokemon this week",      "target": 40, "reward": 3,   "reward_ball": "rayball",     "tier": "medium", "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_catch_60",       "label": "Catch 60 Pokemon this week",      "target": 60, "reward": 2,   "reward_ball": "myrtleball",  "tier": "hard",   "kind": "catch_total",     "period": "weekly"},
+    {"id": "w_5_rares",        "label": "Catch 5 rare Pokemon this week",  "target": 5,  "reward": 3,   "reward_ball": "myrtleball",  "tier": "medium", "kind": "catch_rarity",    "rarity": "rare",      "period": "weekly"},
+    {"id": "w_2_legendary",    "label": "Catch 2 legendaries this week",   "target": 2,  "reward": 2,   "reward_ball": "lunchball",   "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "weekly"},
+    {"id": "w_walk_5km",       "label": "Walk 5 km this week",             "target": 5000,"reward": 40, "reward_ball": "pokeball",    "tier": "easy",   "kind": "walk_meters",     "period": "weekly"},
+    {"id": "w_walk_10km",      "label": "Walk 10 km this week",            "target": 10000,"reward": 4, "reward_ball": "rayball",     "tier": "medium", "kind": "walk_meters",     "period": "weekly"},
+    {"id": "w_5_types",        "label": "Catch 5 different types this week","target": 5, "reward": 3,   "reward_ball": "rayball",     "tier": "medium", "kind": "distinct_types",  "period": "weekly"},
+    {"id": "w_10_supervisors", "label": "Catch 10 supervisors this week",  "target": 10, "reward": 3,   "reward_ball": "myrtleball",  "tier": "hard",   "kind": "catch_featured",  "period": "weekly"},
+    {"id": "w_fancy_10",       "label": "Use 10 fancy balls this week",    "target": 10, "reward": 1,   "reward_ball": "lunchball",   "tier": "medium", "kind": "use_fancy_ball",  "period": "weekly"},
 
-    # MONTHLY (8)
-    {"id": "m_catch_100",      "label": "Catch 100 Pokemon this month",    "target": 100,  "reward": 100, "tier": "easy",   "kind": "catch_total",    "period": "monthly"},
-    {"id": "m_catch_200",      "label": "Catch 200 Pokemon this month",    "target": 200,  "reward": 250, "tier": "medium", "kind": "catch_total",    "period": "monthly"},
-    {"id": "m_5_legendaries",  "label": "Catch 5 legendaries this month",  "target": 5,    "reward": 400, "tier": "hard",   "kind": "catch_rarity",   "rarity": "legendary", "period": "monthly"},
-    {"id": "m_25_distinct",    "label": "Catch 25 different Pokemon",      "target": 25,   "reward": 300, "tier": "hard",   "kind": "distinct_pokemon","period": "monthly"},
-    {"id": "m_walk_30km",      "label": "Walk 30 km this month",           "target": 30000,"reward": 250, "tier": "medium", "kind": "walk_meters",    "period": "monthly"},
-    {"id": "m_50_supervisors", "label": "Catch 50 supervisors this month", "target": 50,   "reward": 400, "tier": "hard",   "kind": "catch_featured", "period": "monthly"},
-    {"id": "m_8_types",        "label": "Catch 8 different types",         "target": 8,    "reward": 200, "tier": "medium", "kind": "distinct_types", "period": "monthly"},
-    {"id": "m_fancy_25",       "label": "Use 25 fancy balls this month",   "target": 25,   "reward": 200, "tier": "medium", "kind": "use_fancy_ball", "period": "monthly"},
+    # Monthly — best balls at the end.
+    {"id": "m_catch_100",      "label": "Catch 100 Pokemon this month",    "target": 100,  "reward": 100, "reward_ball": "pokeball",    "tier": "easy",   "kind": "catch_total",    "period": "monthly"},
+    {"id": "m_catch_200",      "label": "Catch 200 Pokemon this month",    "target": 200,  "reward": 5,   "reward_ball": "myrtleball",  "tier": "medium", "kind": "catch_total",    "period": "monthly"},
+    {"id": "m_5_legendaries",  "label": "Catch 5 legendaries this month",  "target": 5,    "reward": 4,   "reward_ball": "lunchball",   "tier": "hard",   "kind": "catch_rarity",   "rarity": "legendary", "period": "monthly"},
+    {"id": "m_25_distinct",    "label": "Catch 25 different Pokemon",      "target": 25,   "reward": 5,   "reward_ball": "myrtleball",  "tier": "hard",   "kind": "distinct_pokemon","period": "monthly"},
+    {"id": "m_walk_30km",      "label": "Walk 30 km this month",           "target": 30000,"reward": 8,   "reward_ball": "rayball",     "tier": "medium", "kind": "walk_meters",    "period": "monthly"},
+    {"id": "m_50_supervisors", "label": "Catch 50 supervisors this month", "target": 50,   "reward": 6,   "reward_ball": "myrtleball",  "tier": "hard",   "kind": "catch_featured", "period": "monthly"},
+    {"id": "m_8_types",        "label": "Catch 8 different types",         "target": 8,    "reward": 4,   "reward_ball": "rayball",     "tier": "medium", "kind": "distinct_types", "period": "monthly"},
+    {"id": "m_fancy_25",       "label": "Use 25 fancy balls this month",   "target": 25,   "reward": 3,   "reward_ball": "lunchball",   "tier": "medium", "kind": "use_fancy_ball", "period": "monthly"},
 
-    # EXPERT (12) — sequential. Kid sees ONE at a time, advancing on claim.
-    {"id": "e_first",          "label": "Catch your very first Pokemon",   "target": 1,    "reward": 5,   "tier": "easy",   "kind": "catch_total",     "period": "expert"},
-    {"id": "e_50",             "label": "Catch 50 Pokemon (lifetime)",     "target": 50,   "reward": 50,  "tier": "easy",   "kind": "catch_total",     "period": "expert"},
-    {"id": "e_first_rare",     "label": "Catch your first rare",           "target": 1,    "reward": 20,  "tier": "easy",   "kind": "catch_rarity",    "rarity": "rare",      "period": "expert"},
-    {"id": "e_first_leg",      "label": "Catch your first LEGENDARY",      "target": 1,    "reward": 100, "tier": "medium", "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
-    {"id": "e_200",            "label": "Catch 200 Pokemon (lifetime)",    "target": 200,  "reward": 150, "tier": "medium", "kind": "catch_total",     "period": "expert"},
-    {"id": "e_5_types",        "label": "Catch 5 different types ever",    "target": 5,    "reward": 100, "tier": "medium", "kind": "distinct_types",  "period": "expert"},
-    {"id": "e_500",            "label": "Catch 500 Pokemon (lifetime)",    "target": 500,  "reward": 300, "tier": "hard",   "kind": "catch_total",     "period": "expert"},
-    {"id": "e_10_types",       "label": "Catch 10 different types ever",   "target": 10,   "reward": 250, "tier": "hard",   "kind": "distinct_types",  "period": "expert"},
-    {"id": "e_5_legendaries",  "label": "Catch 5 legendaries (lifetime)",  "target": 5,    "reward": 400, "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
-    {"id": "e_walk_50km",      "label": "Walk 50 km cumulative",           "target": 50000,"reward": 400, "tier": "hard",   "kind": "walk_meters",     "period": "expert"},
-    {"id": "e_1000",           "label": "Catch 1,000 Pokemon (lifetime)",  "target": 1000, "reward": 600, "tier": "hard",   "kind": "catch_total",     "period": "expert"},
-    {"id": "e_25_legendaries", "label": "Catch 25 legendaries (lifetime)", "target": 25,   "reward": 1500,"tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
+    # Expert — sequential. Lifetime stat goals with serious payouts.
+    {"id": "e_first",          "label": "Catch your very first Pokemon",   "target": 1,    "reward": 5,    "reward_ball": "pokeball",   "tier": "easy",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_50",             "label": "Catch 50 Pokemon (lifetime)",     "target": 50,   "reward": 50,   "reward_ball": "pokeball",   "tier": "easy",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_first_rare",     "label": "Catch your first rare",           "target": 1,    "reward": 2,    "reward_ball": "rayball",    "tier": "easy",   "kind": "catch_rarity",    "rarity": "rare",      "period": "expert"},
+    {"id": "e_first_leg",      "label": "Catch your first LEGENDARY",      "target": 1,    "reward": 2,    "reward_ball": "lunchball",  "tier": "medium", "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
+    {"id": "e_200",            "label": "Catch 200 Pokemon (lifetime)",    "target": 200,  "reward": 5,    "reward_ball": "rayball",    "tier": "medium", "kind": "catch_total",     "period": "expert"},
+    {"id": "e_5_types",        "label": "Catch 5 different types ever",    "target": 5,    "reward": 4,    "reward_ball": "myrtleball", "tier": "medium", "kind": "distinct_types",  "period": "expert"},
+    {"id": "e_500",            "label": "Catch 500 Pokemon (lifetime)",    "target": 500,  "reward": 8,    "reward_ball": "myrtleball", "tier": "hard",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_10_types",       "label": "Catch 10 different types ever",   "target": 10,   "reward": 5,    "reward_ball": "myrtleball", "tier": "hard",   "kind": "distinct_types",  "period": "expert"},
+    {"id": "e_5_legendaries",  "label": "Catch 5 legendaries (lifetime)",  "target": 5,    "reward": 5,    "reward_ball": "lunchball",  "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
+    {"id": "e_walk_50km",      "label": "Walk 50 km cumulative",           "target": 50000,"reward": 6,    "reward_ball": "lunchball",  "tier": "hard",   "kind": "walk_meters",     "period": "expert"},
+    {"id": "e_1000",           "label": "Catch 1,000 Pokemon (lifetime)",  "target": 1000, "reward": 10,   "reward_ball": "lunchball",  "tier": "hard",   "kind": "catch_total",     "period": "expert"},
+    {"id": "e_25_legendaries", "label": "Catch 25 legendaries (lifetime)", "target": 25,   "reward": 25,   "reward_ball": "lunchball",  "tier": "hard",   "kind": "catch_rarity",    "rarity": "legendary", "period": "expert"},
 ]
 
 EXPERT_SEQUENCE = [c["id"] for c in CHALLENGE_TEMPLATES if c["period"] == "expert"]
@@ -2986,6 +2986,7 @@ async def get_all_challenges(user=Depends(get_current_user)):
                 "completed": progress >= ch["target"],
                 "claimed": claimed,
                 "reward": ch["reward"],
+                "reward_ball": ch.get("reward_ball", "pokeball"),
                 "kind": ch["kind"],
                 "period": period,
             })
@@ -3015,6 +3016,7 @@ async def challenges_today(user=Depends(get_current_user)):
             "completed": progress >= ch["target"],
             "claimed": claimed,
             "reward": ch["reward"],
+            "reward_ball": ch.get("reward_ball", "pokeball"),
             "kind": ch["kind"],
         })
     return {"date": period_key, "challenges": out}
@@ -3037,7 +3039,7 @@ async def challenges_claim(challenge_id: str, user=Depends(get_current_user)):
     if progress < ch["target"]:
         raise HTTPException(400, f"Not complete yet ({progress}/{ch['target']})")
     wallet = await adjust_ball(
-        user["id"], "pokeball", int(ch["reward"]),
+        user["id"], ch.get("reward_ball", "pokeball"), int(ch["reward"]),
         "challenge_complete",
         {
             "challenge_id": challenge_id,
@@ -3051,6 +3053,7 @@ async def challenges_claim(challenge_id: str, user=Depends(get_current_user)):
         "challenge_id": challenge_id,
         "period": period,
         "reward": int(ch["reward"]),
+        "reward_ball": ch.get("reward_ball", "pokeball"),
         "balance": int(wallet.get("balance", 0)),
         "balances": wallet.get("balances") or {},
     }

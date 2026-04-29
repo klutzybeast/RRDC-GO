@@ -8,7 +8,7 @@ import PokemonOverlay from "../components/PokemonOverlay";
 import RarityBadge from "../components/RarityBadge";
 import RiverBall from "../components/RiverBall";
 import CampBall from "../components/CampBall";
-import BallSelector from "../components/BallSelector";
+import BallSwitcher from "../components/BallSwitcher";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";

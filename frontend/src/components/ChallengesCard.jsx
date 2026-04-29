@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ScrollText, X, Check, Gift, Sparkles, Trophy, Calendar, CalendarDays, CalendarRange } from "lucide-react";
+import { ScrollText, X, Check, Sparkles, Trophy, Calendar, CalendarDays, CalendarRange } from "lucide-react";
 import { userApi, formatApiError } from "../lib/api";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
+import CampBall, { BALL_BY_ID } from "./CampBall";
 
 const TIER_STYLE = {
     easy:   { ring: "border-emerald-300", chip: "bg-emerald-500", label: "Easy",   bar: "bg-emerald-500" },
@@ -48,7 +49,9 @@ export default function ChallengesCard({ onRewardClaimed }) {
         setClaiming(ch.id);
         try {
             const r = await userApi.post(`/challenges/${ch.id}/claim`);
-            toast.success(`+${r.data.reward} balls — ${ch.label}!`, { duration: 4000 });
+            const ballId = r.data?.reward_ball || "pokeball";
+            const ballLabel = BALL_BY_ID[ballId]?.label || "balls";
+            toast.success(`+${r.data.reward} ${ballLabel}${r.data.reward === 1 ? "" : "s"} — ${ch.label}!`, { duration: 4000 });
             onRewardClaimed && onRewardClaimed(r.data);
             refresh();
         } catch (e) {
@@ -173,6 +176,8 @@ export default function ChallengesCard({ onRewardClaimed }) {
                                             const pct = Math.round(Math.min(100, (ch.progress / Math.max(1, ch.target)) * 100));
                                             const done = ch.progress >= ch.target;
                                             const formatProgress = (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v;
+                                            const rewardBall = ch.reward_ball || "pokeball";
+                                            const rewardBallLabel = BALL_BY_ID[rewardBall]?.label || "Ball";
                                             return (
                                                 <li
                                                     key={ch.id}
@@ -190,9 +195,11 @@ export default function ChallengesCard({ onRewardClaimed }) {
                                                                 {ch.kind === "walk_meters" && " m"}
                                                             </div>
                                                         </div>
-                                                        <div className="flex-shrink-0 flex flex-col items-end">
-                                                            <span className="text-xs font-bold text-amber-600 flex items-center gap-1">
-                                                                <Gift className="w-3.5 h-3.5" />+{ch.reward}
+                                                        <div className="flex-shrink-0 flex flex-col items-center gap-0.5" data-testid={`reward-${ch.id}`}>
+                                                            <CampBall ballId={rewardBall} size={28} animate={false} />
+                                                            <span className="text-[10px] font-bold text-slate-700 tabular-nums">+{ch.reward}</span>
+                                                            <span className="text-[8px] uppercase tracking-wider text-slate-400 leading-none">
+                                                                {rewardBallLabel}{ch.reward !== 1 ? "s" : ""}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -208,10 +215,15 @@ export default function ChallengesCard({ onRewardClaimed }) {
                                                             <Button
                                                                 onClick={() => claim(ch)}
                                                                 disabled={claiming === ch.id}
-                                                                className="rounded-2xl h-9 bg-amber-500 hover:bg-amber-600 text-white font-bold tactile-btn"
+                                                                className="rounded-2xl h-9 bg-amber-500 hover:bg-amber-600 text-white font-bold tactile-btn flex items-center gap-1.5"
                                                                 data-testid={`claim-${ch.id}`}
                                                             >
-                                                                {claiming === ch.id ? "Claiming…" : `Claim +${ch.reward} balls`}
+                                                                {claiming === ch.id ? "Claiming…" : (
+                                                                    <>
+                                                                        <CampBall ballId={rewardBall} size={20} animate={false} />
+                                                                        Claim +{ch.reward}
+                                                                    </>
+                                                                )}
                                                             </Button>
                                                         ) : (
                                                             <span className="text-xs text-slate-400 italic">Keep going!</span>

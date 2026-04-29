@@ -11,7 +11,6 @@ import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
 import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
-import RiverBall from "../components/RiverBall";
 import TrainerAvatar from "../components/TrainerAvatar";
 import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
 import SupervisorChallenge from "../components/SupervisorChallenge";
@@ -633,15 +632,20 @@ export default function MapPage() {
                 {activeSpawn && (
                     <motion.button
                         onClick={openCatch}
-                        whileTap={{ scale: 0.92 }}
+                        whileTap={{ scale: 0.95 }}
                         disabled={!activeInRange}
-                        className={`relative ${!activeInRange ? "opacity-60" : ""}`}
+                        className={`relative px-5 py-3 rounded-full font-heading text-base font-black uppercase tracking-wider shadow-xl tactile-btn ${
+                            activeInRange
+                                ? "bg-amber-400 text-slate-900 hover:bg-amber-300"
+                                : "bg-slate-700/80 text-white opacity-80 cursor-not-allowed"
+                        }`}
                         data-testid="open-catch-btn"
                     >
-                        <RiverBall size={96} animate={activeInRange} />
-                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap ${activeInRange ? "bg-amber-300 text-slate-900" : "bg-slate-700 text-white"}`}>
-                            {activeInRange ? "Tap to catch" : activeSpawn._distance_m != null ? `${Math.round(activeSpawn._distance_m)} m away` : "Walk closer"}
-                        </div>
+                        {activeInRange
+                            ? `Catch ${activeSpawn.pokemon?.name || ""}!`
+                            : activeSpawn._distance_m != null
+                                ? `${Math.round(activeSpawn._distance_m)} m away — walk closer`
+                                : "Walk closer"}
                     </motion.button>
                 )}
             </div>
