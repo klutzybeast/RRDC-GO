@@ -321,3 +321,35 @@ Implementation:
 - Camper position trail on Live Map.
 - Type-effectiveness twist (myrtleball vs grass etc).
 
+
+---
+
+## Iteration 14 — 4-tab Challenges (Daily / Weekly / Monthly / Expert) (2026-04-29)
+
+### What changed
+- Pill on the map now reads "**N available**" (count of challenges) instead of "up to +N balls". When any are completed-but-unclaimed it switches to a pulsing amber "**N ready**".
+- Modal got 4 tabs: **Daily / Weekly / Monthly / Expert**.
+
+### Templates (45 total)
+- **Daily (15 templates → 6 picked)** — 2 easy + 2 medium + 2 hard. Resets at local midnight.
+- **Weekly (10 templates → 6 picked)** — same 2/2/2 split. Resets Monday 00:00 local.
+- **Monthly (8 templates → 7 picked)** — 1 easy + 3 medium + 3 hard. Resets on the 1st 00:00 local.
+- **Expert (12 templates, sequential)** — kid sees only the next-up. Claim advances to the next. After all 12 they get a "Rolling River legend" splash.
+
+### Implementation
+- `period` field added to every template; `EXPERT_SEQUENCE` is the ordered list of expert ids.
+- Deterministic per-period selection via `sha1(camper_id|period|period_key)` so refreshes/restarts never reshuffle within a period; new period auto-rotates the picks.
+- Period keys: `YYYY-MM-DD` / `YYYY-Www` / `YYYY-MM` / `all-time`.
+- `_period_cutoff_iso(period)` + `walk_meters` aggregation off `db.camper_distance_daily` for week/month sums (daily still uses live `camper_positions.daily_distance_m`).
+- Claims store `meta.period` + `meta.period_key` so a daily challenge claimed yesterday becomes claimable again today, but a weekly one only once per ISO week.
+- New `GET /api/challenges` returns the grouped object + `totals: {available, ready_to_claim}`. Old `GET /api/challenges/today` preserved for back-compat (still serves daily flat list with `date` field).
+
+### Test pass: 17/17 backend pytest + 100% frontend
+Verified shape, counts, tier distribution per period, key formats, determinism, back-compat, claim 404/400 paths, expert sequence advancement (e_first → e_50 after one claim, empty list after 12 claims), modal scroll, and all `data-testid` selectors across the new tab UI.
+
+### Backlog unchanged
+- Refactor 2900-line `server.py` into routers.
+- Stationary-kid alert + position trail on admin Live Map.
+- Type-effectiveness twist.
+- Per-camp leaderboards (would now sit naturally on the new monthly tab).
+
