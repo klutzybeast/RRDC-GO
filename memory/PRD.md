@@ -353,3 +353,33 @@ Verified shape, counts, tier distribution per period, key formats, determinism, 
 - Type-effectiveness twist.
 - Per-camp leaderboards (would now sit naturally on the new monthly tab).
 
+
+## 2026-02-21 — Map "Nearby" panel + AR BallSwitcher popover
+
+### NearbyPanel (Map)
+- New `Eye` pill button in the map's top action row labelled `Nearby <count>` (`data-testid="nearby-pill"`). Replaces the old standalone ball icon, which was removed.
+- Tap → modal listing every active spawn around the camper as a 2-col grid sorted by haversine distance. Each tile shows the rarity badge and meters away.
+- **Silhouette feature**: any spawn whose `pokemon_id` is NOT in the camper's `/api/bank` collection renders the image with `filter: brightness(0) saturate(100%)` and the name as `???`. A pink "NEW" badge sits on its top-right corner.
+- Spawns within `catchRadius` (default 40 m) get an emerald border + "In range" badge.
+- Pill itself shows a pink `<count> new` badge if the bank cross-check finds any uncaught spawns nearby.
+- File: `/app/frontend/src/components/NearbyPanel.jsx`. Wired into `MapPage.jsx` line 593.
+
+### BallSwitcher (AR)
+- The 4-row always-visible ball selector strip on the catch screen has been replaced with a **compact pill button** `[ball icon] [SHORT NAME] × [count] ⌃` (`data-testid="ball-switcher-btn"`).
+- Tap opens a bottom-sheet modal listing all 4 balls with counts, multipliers, and lock state. Owned balls are clickable (`data-testid="ball-pick-<id>"`); unowned balls greyscaled and disabled with progress text "X/Y rares caught".
+- Auto-closes on selection, X close button, and outside-overlay tap.
+- File: `/app/frontend/src/components/BallSwitcher.jsx`. Wired into `ARPage.jsx` lines 11 + 383 (testing agent caught and fixed a stale `<BallSelector>` JSX tag at line 383 — safe one-token rename).
+- Old `/app/frontend/src/components/BallSelector.jsx` deleted as dead code.
+
+### Test pass: iteration_15.json — 100% frontend, no backend touched
+Camper login → group/camper select → map renders Nearby pill (5 nearby), modal opens with silhouettes for uncaught + emerald borders for in-range; AR launch via `Catch Pokemon Slot #N!` renders `ball-switcher-btn` and modal with all 4 balls and correct counts (pokeball=278, myrtleball=1, others=0). No old standalone ball icon on map. Zero React/console errors.
+
+### Backlog (next sprints — user hasn't picked yet)
+- **Sprint 1 (P1)**: Buddy Pokémon — pick a buddy, walks on map, 1 candy / 100m, spend candies to power up.
+- **Sprint 2 (P1)**: PokéStops & Gyms — map pins as Stops (drop items) / Gyms (group claims with strongest supervisor).
+- **Sprint 3 (P2)**: Friends + daily gifts.
+- **Sprint 4 (P2)**: Raids (co-op vs legendaries at Gyms).
+- **Sprint 5 (P2)**: Trading.
+- **Sprint 6 (P2)**: Party Play (4-kid groups walking together for bonuses).
+- **Admin enhancement (P1, small)**: Stationary-kid alert badge on Live Map (>15 min no movement).
+- **Tech debt (P2)**: Split `server.py` (~3000 lines) into `/app/backend/routers/`.
