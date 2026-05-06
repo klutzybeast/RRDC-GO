@@ -84,11 +84,17 @@ export default function MapPage() {
 
     const lastLocRef = useRef(null);
     const [isWalking, setIsWalking] = useState(false);
+    const [bearing, setBearing] = useState(0);
     useEffect(() => {
         if (!myLocation) return;
         if (lastLocRef.current) {
             const moved = metersBetween(lastLocRef.current, myLocation);
             if (moved >= 1) {
+                // Bearing in degrees (0 = north, clockwise) from prev → current
+                const dy = myLocation.lat - lastLocRef.current.lat;
+                const dx = (myLocation.lng - lastLocRef.current.lng) * Math.cos((myLocation.lat * Math.PI) / 180);
+                const deg = (Math.atan2(dx, dy) * 180) / Math.PI;
+                setBearing(((deg % 360) + 360) % 360);
                 setIsWalking(true);
                 clearTimeout(lastLocRef.current._stopTimer);
                 const t = setTimeout(() => setIsWalking(false), 2500);
@@ -98,6 +104,22 @@ export default function MapPage() {
         }
         lastLocRef.current = { ...myLocation };
     }, [myLocation?.lat, myLocation?.lng]);
+
+    // Daily streak — fetch on mount + after every catch (poll every 60s as fallback)
+    const [streak, setStreak] = useState(null);
+    const refreshStreak = React.useCallback(() => {
+        userApi.get("/streak").then((r) => setStreak(r.data)).catch(() => {});
+    }, []);
+    useEffect(() => {
+        refreshStreak();
+        const t = setInterval(refreshStreak, 60000);
+        const onVis = () => { if (!document.hidden) refreshStreak(); };
+        document.addEventListener("visibilitychange", onVis);
+        return () => {
+            clearInterval(t);
+            document.removeEventListener("visibilitychange", onVis);
+        };
+    }, [refreshStreak]);
 
     // Auto-claim daily bonus on mount
     useEffect(() => {
@@ -401,7 +423,13 @@ export default function MapPage() {
                                 style={{ transform: "translate(-50%, -90%)" }}
                                 data-testid="my-location-avatar"
                             >
-                                <TrainerAvatar size={88} walking={isWalking} colors={avatarColors} />
+                                <motion.div
+                                    animate={{ rotate: isWalking ? bearing : 0 }}
+                                    transition={{ type: "spring", stiffness: 90, damping: 16 }}
+                                    style={{ transformOrigin: "50% 75%" }}
+                                >
+                                    <TrainerAvatar size={88} walking={isWalking} colors={avatarColors} />
+                                </motion.div>
                             </div>
                         </OverlayView>
                     )}
@@ -427,21 +455,62 @@ export default function MapPage() {
                         const dist = s._distance_m;
                         const inRange = dist != null && dist <= catchRadius;
                         const glow = rarityGlow[s.pokemon.rarity] || rarityGlow.common;
+                        // Pokemon-GO style: scale down faraway markers, pulse the close ones.
+                        let scale = 1.0;
+                        let opacity = 1.0;
+                        if (dist != null) {
+                            if (dist > 100) { scale = 0.7; opacity = 0.7; }
+                            else if (dist > 50) { scale = 0.85; opacity = 0.85; }
+                            else if (dist > 20) { scale = 1.0; opacity = 1.0; }
+                            else { scale = 1.1; opacity = 1.0; }
+                        }
+                        // Per-rarity ring color (sits OUTSIDE the radial halo for that
+                        // unmistakable "this is rare" silhouette ring).
+                        const ringColor = {
+                            common: "rgba(148,163,184,0.55)",
+                            uncommon: "rgba(34,197,94,0.7)",
+                            rare: "rgba(59,130,246,0.8)",
+                            legendary: "rgba(251,191,36,0.95)",
+                        }[s.pokemon.rarity] || "rgba(148,163,184,0.55)";
+                        const ringPulse = {
+                            common: { duration: 2.4, scale: [1, 1.06, 1] },
+                            uncommon: { duration: 2.0, scale: [1, 1.10, 1] },
+                            rare: { duration: 1.6, scale: [1, 1.14, 1] },
+                            legendary: { duration: 1.2, scale: [1, 1.20, 1] },
+                        }[s.pokemon.rarity] || { duration: 2.4, scale: [1, 1.06, 1] };
+                        // Stagger start times so adjacent markers don't bob in lock-step
+                        const seed = (s.spawn_id || "").split("").reduce((n, c) => n + c.charCodeAt(0), 0);
+                        const bobDelay = (seed % 100) / 100;
+                        const ringDelay = (seed % 73) / 73;
                         return (
                             <OverlayView
                                 key={s.spawn_id}
                                 position={{ lat: s.latitude, lng: s.longitude }}
                                 mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
                             >
-                                <div
+                                <motion.div
                                     onClick={() => openCatchFor(s)}
                                     className="relative cursor-pointer select-none"
                                     style={{ transform: "translate(-50%, -100%)" }}
+                                    animate={{ scale, opacity }}
+                                    transition={{ type: "spring", stiffness: 120, damping: 18 }}
                                     data-testid="spawn-marker"
                                 >
+                                    {/* Rarity pulse ring — sits beneath the bob animation */}
                                     <motion.div
-                                        animate={{ y: [0, -8, 0] }}
-                                        transition={{ repeat: Infinity, duration: 1.6 }}
+                                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
+                                        style={{
+                                            width: "108%",
+                                            height: "108%",
+                                            border: `3px solid ${ringColor}`,
+                                            boxShadow: `0 0 18px ${ringColor}`,
+                                        }}
+                                        animate={{ scale: ringPulse.scale, opacity: [0.55, 0.95, 0.55] }}
+                                        transition={{ repeat: Infinity, duration: ringPulse.duration, ease: "easeInOut", delay: ringDelay }}
+                                    />
+                                    <motion.div
+                                        animate={{ y: [0, -8, 0], rotate: [-3, 3, -3] }}
+                                        transition={{ repeat: Infinity, duration: 1.6 + bobDelay * 0.8, ease: "easeInOut", delay: bobDelay }}
                                         className="relative w-24 h-24 flex items-center justify-center"
                                     >
                                         {/* Soft radial glow behind the transparent PNG — no solid box, no white border */}
@@ -474,7 +543,7 @@ export default function MapPage() {
                                             {Math.round(dist)} m
                                         </div>
                                     )}
-                                </div>
+                                </motion.div>
                             </OverlayView>
                         );
                     })}
@@ -590,6 +659,32 @@ export default function MapPage() {
             <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto space-y-2">
                 <SupervisorChallenge compact />
                 <div className="flex justify-end gap-2 flex-wrap">
+                    {streak && (streak.current_streak > 0 || streak.caught_today) && (
+                        <motion.div
+                            initial={{ scale: 0.85, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="relative bg-white/95 backdrop-blur-sm rounded-full px-3 py-2 shadow-lg flex items-center gap-1.5"
+                            data-testid="streak-pill"
+                            title={streak.at_risk ? "Catch one today to keep your streak alive!" : "Daily catch streak"}
+                        >
+                            <motion.span
+                                className="text-base"
+                                animate={streak.caught_today ? { scale: [1, 1.18, 1] } : { scale: 1 }}
+                                transition={{ repeat: streak.caught_today ? Infinity : 0, duration: 1.6 }}
+                            >🔥</motion.span>
+                            <span className="text-sm font-black text-slate-900 tabular-nums">
+                                {streak.current_streak}
+                            </span>
+                            <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                                day{streak.current_streak === 1 ? "" : "s"}
+                            </span>
+                            {streak.at_risk && !streak.caught_today && (
+                                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full px-1.5 h-[18px] min-w-[18px] flex items-center justify-center" data-testid="streak-at-risk">
+                                    !
+                                </span>
+                            )}
+                        </motion.div>
+                    )}
                     <NearbyPanel
                         spawns={spawns}
                         myLocation={myLocation}

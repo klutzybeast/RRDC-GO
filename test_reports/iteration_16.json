@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 16 (Pokemon-GO parity subset) — Backend + Frontend. Backend: 16/16 pytest tests pass in /app/backend/tests/test_iteration16.py covering (a) GET /api/streak shape for fresh camper + after catch, (b) wobble_stages / is_shiny / streak fields on POST /api/spawn/catch, (c) kid-friendly tuning — common+pokeball measured 98.3% (≥85% floor), legendary+pokeball 55% (in 50-60% target band), lunchball raises legendary success to 76.7% vs 55% pokeball, (d) consecutive-day streak math (yesterday→today increments to 2 with +5 streak_bonus to ledger), (e) skip-day reset to 1 with longest preserved, and (f) regressions: admin login (/api/admin/auth/login), camper login, /api/spawn/current, /api/wallet, /api/bank, /api/catches, /api/admin/roster-status all 200. Frontend (414×896 mobile, geolocation 40.6396/-73.6665, B01 → first camper Colton Ahern): map renders cartoon Google map with avatar + 5 spawn markers; streak-pill is correctly HIDDEN at fresh state (current_streak=0, caught_today=false); nearby-pill shows 'Nearby 5' and challenges-pill shows '1 ready' alongside it; tapping bottom 'CATCH PINESPROUT' navigates to /ar?spawn=...; AR page mounts (data-testid=ar-page), river-ball click runs ball-flight → BallWobbleSequence → ball-sealed; CatchSuccessModal opens with name 'Pinesprout', power 104, common badge, and streak-callout '🔥 DAILY STREAK Day 1' (data-testid=streak-callout); shiny-badge correctly absent (1/100 roll did not hit); Continue Hunting returns to /map and streak-pill now appears with text '🔥 1 DAY' (data-testid=streak-pill). Zero React/console errors across the run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/spawn/catch", "issue": "When catch fails the response sets streak=None (Optional[dict]). Frontend code reads result.streak.current_streak in the modal — guarded by `result.streak && result.streak.current_streak >= 1`, so safe. Just calling it out for awareness."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MapPage top action row", "issues": ["After catch, the streak-pill appears on its own line ABOVE the 'Nearby' / 'Challenges' row instead of inline. Visually fine on 414px, but the iteration spec said 'inside the top action row alongside NearbyPanel and the challenges pill'. Low priority — current layout is readable and the data-testid is present."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16.py",
+    "/app/test_reports/pytest/iteration16_results.xml"
+  ],
+  "action_items": [
+    "Optional polish (P3): place streak-pill on the same flex row as Nearby + Challenges (or wrap them in a single flex container) to match the spec line 'inside the top action row'. No functional impact.",
+    "Backend documentation nit: STREAK_REWARD_TABLE day 1 grants 0 balls; consider whether the 'Daily bonus! +25 balls' toast that appears on the camper HUD comes from a different code path (looked like it fired pre-catch from a different daily-login bonus, not from streak). Worth verifying it doesn't double-grant when day 5 is reached (table gives 25 at day 5)."
+  ],
+  "critical_code_review_comments": [
+    "WOBBLE_RETENTION tuning is well-calibrated and matches the kid-friendly spec out of the box. Empirical: common=98.3%, legendary=55%, lunchball lifts legendary to ~77%. No changes needed.",
+    "BallWobbleSequence.jsx — clean state machine drop→wobble(N)→sealed|burst with proper cleanup of timeouts; data-testids present on all four phases. Good.",
+    "CatchResult model exposes streak as Optional[dict] (None on failed catch) — frontend already null-guards it. Acceptable.",
+    "_apply_daily_streak: returns last_caught_ymd as `today if last_ymd == today or reward_granted else last_ymd`. Reward truthiness (0 vs >0) flips the value on day 1 (reward=0 → returns the old last_ymd). Functional impact is zero (the DB write itself uses today), but the returned dict on day 1 will show last_caught_ymd=null/yesterday rather than today. Minor cosmetic only — frontend uses current_streak/reward_granted, not last_caught_ymd from this dict.",
+    "MapPage streak-pill — correctly HIDDEN when current_streak=0 AND !caught_today. Verified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16.py (new)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% on tested flows"},
+  "test_credentials": "Admin: admin / Camp1993 → /api/admin/auth/login (NOTE: spec mentioned /api/auth/login but admin actually uses /api/admin/auth/login — that's the existing API surface, no change needed). Camper: B01 → first camper (no password). Geolocation 40.6396 / -73.6665 (camp center).",
+  "seed_data_creation": "Test mutates camper_streaks (sets last_caught_ymd to yesterday / 2 days ago) and group_spawns / ball_wallets directly via motor for deterministic catch-rate measurement and streak math. All seeded under camper id from B01 index 5 to avoid clobbering iteration 14/15 fixtures (idx 0,1).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 16 ships streak + wobble + shiny. Catch rates are well-tuned; do not lower them. test_iteration16.py uses motor to seed group_spawns + ball_wallets so the catch endpoint resolves deterministically, and uses timezone-aware UTC datetimes (datetime.now(timezone.utc)) — naive datetimes will trip the backend's 'expires_at' comparison with a 500. The admin login path is /api/admin/auth/login (NOT /api/auth/login). On the frontend, the streak pill uses data-testid=streak-pill (only rendered when current_streak>0 OR caught_today=true), CatchSuccessModal uses data-testid=streak-callout + shiny-badge, BallWobbleSequence uses ball-wobble-1/2/3, ball-sealed, ball-burst. Ball flight delay is ~850ms before wobble mounts, so polling for ball-wobble-1 immediately after click can miss it; better to wait for the terminal phase ball-sealed/ball-burst.",
+  "rca of the issue": "No bugs to RCA — iteration is functionally complete. The two minor cosmetic notes (top-row layout and day-1 _apply_daily_streak dict last_caught_ymd) have zero user-visible impact in the current UI."
+}

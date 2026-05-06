@@ -9,6 +9,7 @@ import RarityBadge from "../components/RarityBadge";
 import RiverBall from "../components/RiverBall";
 import CampBall from "../components/CampBall";
 import BallSwitcher from "../components/BallSwitcher";
+import BallWobbleSequence from "../components/BallWobbleSequence";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
@@ -85,6 +86,7 @@ export default function ARPage() {
     const [throwing, setThrowing] = useState(false);
     const [result, setResult] = useState(null);
     const [showBallAnim, setShowBallAnim] = useState(false);
+    const [wobble, setWobble] = useState(null); // { stages, success, ballId, pendingResult }
     const [flash, setFlash] = useState("");
     const [ambient, setAmbient] = useState(null);
     const [selectedBall, setSelectedBall] = useState("pokeball");
@@ -225,22 +227,17 @@ export default function ARPage() {
         try {
             const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id, ball_type: ball });
             refreshWallet();
-            if (res.data.success) {
-                setResult(res.data);
-                setSpawn(null);
-                tryPlayCatch();
-                // Toast any fancy-ball rewards earned on this catch
-                const rewards = res.data.ball_rewards || {};
-                Object.entries(rewards).forEach(([rb, n]) => {
-                    if (n > 0) toast.success(`+${n} ${rb} earned!`, { duration: 4000 });
-                });
-            } else {
-                // Pokemon did NOT flee — it dodged. Let the camper try again.
-                setMissCount((n) => n + 1);
-                setFlash(res.data.message || "Dodged!");
-                setTimeout(() => setFlash(""), 1200);
-                tryPlayMiss();
-            }
+            // Always show the 1-2-3 wobble sequence — backend tells us how it ends.
+            const stages = Array.isArray(res.data.wobble_stages) && res.data.wobble_stages.length === 3
+                ? res.data.wobble_stages
+                : (res.data.success ? [true, true, true] : [false, false, false]);
+            setWobble({
+                stages,
+                success: !!res.data.success,
+                ballId: ball,
+                pendingResult: res.data,
+                pendingMessage: res.data.message,
+            });
         } catch (e) {
             const msg = formatApiError(e);
             if (msg?.toLowerCase?.().includes("out of")) {
@@ -258,8 +255,32 @@ export default function ARPage() {
             refreshWallet();
         } finally {
             setShowBallAnim(false);
-            setThrowing(false);
         }
+    };
+
+    // Called after the wobble animation finishes — applies success/fail UI.
+    const onWobbleDone = (caught) => {
+        const w = wobble;
+        if (!w) return;
+        if (caught) {
+            setResult(w.pendingResult);
+            setSpawn(null);
+            tryPlayCatch();
+            const rewards = w.pendingResult.ball_rewards || {};
+            Object.entries(rewards).forEach(([rb, n]) => {
+                if (n > 0) toast.success(`+${n} ${rb} earned!`, { duration: 4000 });
+            });
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+        } else {
+            // Pokemon dodged. Let the camper try again.
+            setMissCount((n) => n + 1);
+            setFlash(w.pendingMessage || "Dodged!");
+            setTimeout(() => setFlash(""), 1200);
+            tryPlayMiss();
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+        setWobble(null);
+        setThrowing(false);
     };
 
     const ballY = useMotionValue(0);
@@ -314,7 +335,7 @@ export default function ARPage() {
                 </div>
             )}
 
-            {spawn && <PokemonOverlay imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
+            {spawn && !wobble && <PokemonOverlay imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
 
             {/* UI overlay */}
             <div className="ar-ui">
@@ -447,6 +468,18 @@ export default function ARPage() {
                     )}
                 </AnimatePresence>
             </div>
+
+            {wobble && (
+                <BallWobbleSequence
+                    ballId={wobble.ballId}
+                    stages={wobble.stages}
+                    success={wobble.success}
+                    onDone={onWobbleDone}
+                    onFail={() => {
+                        // optional vibrate trigger handled in onWobbleDone
+                    }}
+                />
+            )}
 
             <CatchSuccessModal
                 open={!!result}

@@ -60,8 +60,23 @@ Rarity = Literal["common", "uncommon", "rare", "legendary"]
 # Kid-friendly catch rates — higher per throw, and Pokemon don't flee on miss
 # (they stay around so the camper can keep throwing until they catch).
 CATCH_RATES = {"common": 0.78, "uncommon": 0.62, "rare": 0.45, "legendary": 0.35}
+# Pokemon GO–style 1-2-3 wobble retention. Each stage must succeed for a full
+# catch. Kid-friendly: commons essentially always stick, legendaries feel earned.
+# Ball multiplier raises retention via: stage_new = stage_old ** (1/ball_mult).
+WOBBLE_RETENTION = {
+    "common":    [0.99, 0.99, 0.99],  # total ≈ 0.97
+    "uncommon":  [0.97, 0.96, 0.95],  # total ≈ 0.88
+    "rare":      [0.93, 0.90, 0.88],  # total ≈ 0.74
+    "legendary": [0.85, 0.82, 0.78],  # total ≈ 0.54
+}
+# 1-in-100 chance a caught Pokemon is shiny (pure cosmetic badge).
+SHINY_RATE = 0.01
 # ~1-in-20 legendary spawns. Common/uncommon dominate.
 DEFAULT_RARITY_WEIGHTS = {"common": 55, "uncommon": 28, "rare": 12, "legendary": 5}
+# Daily streak ball rewards — grants on the FIRST catch of each day.
+# Missing a day resets the streak to 1 on the next catch.
+STREAK_REWARD_TABLE = {1: 0, 2: 5, 3: 10, 4: 15, 5: 25, 6: 40, 7: 75}
+STREAK_CAP_REWARD = 75  # day 8+
 
 
 class LoginRequest(BaseModel):
@@ -231,6 +246,14 @@ class CatchResult(BaseModel):
     ball_used: Optional[str] = None
     ball_rewards: dict = Field(default_factory=dict)  # {ball_type: count_added}
     balances: dict = Field(default_factory=dict)  # current balances after
+    # Pokemon-GO style ball-wobble breakdown. Length 3. Each bool = stage held.
+    # On failed catch, trailing stages are False (the one that broke out first).
+    # On success, all three are True.
+    wobble_stages: List[bool] = Field(default_factory=lambda: [True, True, True])
+    # True → cosmetic shiny catch (1/100 roll).
+    is_shiny: bool = False
+    # Daily streak state after this catch. None when catch failed.
+    streak: Optional[dict] = None
 
 
 class CatchRecord(BaseModel):
@@ -1375,10 +1398,20 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             if "type" in full and not pokemon.get("type"):
                 pokemon["type"] = full.get("type")
     rarity = pokemon.get("rarity", "common")
-    effective_rates = cfg.get("catch_rates") or CATCH_RATES
-    base_rate = float(effective_rates.get(rarity, CATCH_RATES.get(rarity, 0.5)))
     ball_mult = float(BALL_CATCH_MULT.get(ball_type, 1.0))
-    success = random.random() < min(0.97, base_rate * ball_mult)
+    # Pokemon-GO style 3-stage wobble. Each stage is an independent retention
+    # roll; the Pokemon breaks out at the first failed stage. Ball multiplier
+    # raises per-stage retention: stage_new = stage_old ** (1/ball_mult).
+    base_stages = WOBBLE_RETENTION.get(rarity, WOBBLE_RETENTION["common"])
+    stage_keep = [min(0.99, max(0.01, s ** (1.0 / max(ball_mult, 0.01)))) for s in base_stages]
+    wobble_stages = [False, False, False]
+    success = True
+    for i, keep in enumerate(stage_keep):
+        if random.random() < keep:
+            wobble_stages[i] = True
+        else:
+            success = False
+            break
 
     # Deduct one of the chosen ball
     wallet = await adjust_ball(user["id"], ball_type, -1, "throw", {"spawn_id": cur["spawn_id"], "rarity": rarity})
@@ -1411,6 +1444,7 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
                 power_rolled=int(wallet.get("balance", 0)),
                 ball_used=ball_type,
                 balances=wallet.get("balances") or {},
+                wobble_stages=wobble_stages,
             )
 
         # Persist the new miss count back into the spawn doc
@@ -1428,7 +1462,11 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             power_rolled=int(wallet.get("balance", 0)),
             ball_used=ball_type,
             balances=wallet.get("balances") or {},
+            wobble_stages=wobble_stages,
         )
+
+    # Shiny roll (pure cosmetic badge).
+    is_shiny = random.random() < SHINY_RATE
 
     # Catch rewards — pokeballs + maybe fancy ball milestone
     reward = CATCH_REWARD.get(rarity, 0)
@@ -1475,9 +1513,14 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         "rarity": rarity,
         "ball_type": ball_type,
         "power_rolled": power_rolled,
+        "is_shiny": is_shiny,
         "caught_at": caught_at,
     }
     await db.catches.insert_one(catch_doc)
+
+    # Daily streak — counts a catch only once per local day per camper. Resets
+    # to 1 on a missed day. Returns updated streak info + any ball grant.
+    streak_info = await _apply_daily_streak(user["id"])
 
     # Remove ONLY the caught spawn from the list; keep the rest active.
     remaining = [s for s in spawns if s and s.get("spawn_id") != cur["spawn_id"]]
@@ -1496,6 +1539,11 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     if ball_rewards:
         parts = [f"+{n} {b}" for b, n in ball_rewards.items()]
         bonus_text = " — " + ", ".join(parts) + "!"
+    if streak_info and streak_info.get("reward_granted"):
+        bonus_text += f" 🔥 Day {streak_info['current_streak']} streak! +{streak_info['reward_granted']} balls"
+    # Refresh wallet so balances reflect any streak grant
+    if streak_info and streak_info.get("reward_granted"):
+        wallet = await get_or_init_wallet(user["id"])
     return CatchResult(
         success=True,
         pokemon=pokemon_to_out(pokemon),
@@ -1506,6 +1554,9 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
         ball_used=ball_type,
         ball_rewards=ball_rewards,
         balances=wallet.get("balances") or {},
+        wobble_stages=wobble_stages,
+        is_shiny=is_shiny,
+        streak=streak_info,
     )
 
 
@@ -2527,6 +2578,93 @@ async def last_ledger_by_reason(camper_id: str, reason: str, since: Optional[dat
         q["created_at"] = {"$gte": since.isoformat()}
     doc = await db.ball_ledger.find_one(q, {"_id": 0}, sort=[("created_at", -1)])
     return doc
+
+
+# ----------------------
+# DAILY STREAKS
+# ----------------------
+def _local_ymd(now: datetime) -> str:
+    """Local-camp-time YYYY-MM-DD anchor for streak counting."""
+    try:
+        tz = pytz.timezone(SYNC_TIMEZONE)
+        return now.astimezone(tz).strftime("%Y-%m-%d")
+    except Exception:
+        return now.strftime("%Y-%m-%d")
+
+
+def _yesterday_ymd(today_ymd: str) -> str:
+    d = datetime.strptime(today_ymd, "%Y-%m-%d") - timedelta(days=1)
+    return d.strftime("%Y-%m-%d")
+
+
+async def _apply_daily_streak(camper_id: str) -> dict:
+    """Increment a camper's daily streak on their first catch of the day. If they
+    skipped a day, reset to 1. Grants ball reward per STREAK_REWARD_TABLE.
+    Returns: {current_streak, longest_streak, reward_granted, last_caught_ymd}.
+    """
+    today = _local_ymd(now_utc())
+    yest = _yesterday_ymd(today)
+    cur = await db.camper_streaks.find_one({"id": camper_id}, {"_id": 0}) or {}
+    last_ymd = cur.get("last_caught_ymd")
+    current = int(cur.get("current_streak", 0))
+    longest = int(cur.get("longest_streak", 0))
+    reward_granted = 0
+
+    if last_ymd == today:
+        # Already caught today — no streak change, no reward.
+        pass
+    else:
+        if last_ymd == yest:
+            current = current + 1
+        else:
+            current = 1
+        longest = max(longest, current)
+        reward_granted = STREAK_REWARD_TABLE.get(current, STREAK_CAP_REWARD)
+        if reward_granted > 0:
+            await adjust_ball(camper_id, "pokeball", reward_granted, "streak_bonus", {"day": current})
+        await db.camper_streaks.update_one(
+            {"id": camper_id},
+            {"$set": {
+                "id": camper_id,
+                "current_streak": current,
+                "longest_streak": longest,
+                "last_caught_ymd": today,
+                "last_reward_at": now_utc().isoformat(),
+            }},
+            upsert=True,
+        )
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "last_caught_ymd": today if last_ymd == today or reward_granted else last_ymd,
+        "reward_granted": reward_granted,
+        "next_reward": STREAK_REWARD_TABLE.get(current + 1, STREAK_CAP_REWARD),
+    }
+
+
+@api.get("/streak")
+async def get_streak(user=Depends(get_current_user)):
+    """Return camper's current streak state. If the camper hasn't caught today
+    AND missed yesterday, the streak is effectively 0 going into today."""
+    today = _local_ymd(now_utc())
+    yest = _yesterday_ymd(today)
+    cur = await db.camper_streaks.find_one({"id": user["id"]}, {"_id": 0}) or {}
+    last_ymd = cur.get("last_caught_ymd")
+    current = int(cur.get("current_streak", 0))
+    longest = int(cur.get("longest_streak", 0))
+    # If they haven't caught today and last catch wasn't yesterday → streak is at risk / broken.
+    at_risk = (last_ymd == yest)
+    broken = (last_ymd is not None and last_ymd not in (today, yest))
+    return {
+        "current_streak": 0 if broken else current,
+        "longest_streak": longest,
+        "last_caught_ymd": last_ymd,
+        "today_ymd": today,
+        "caught_today": last_ymd == today,
+        "at_risk": at_risk and last_ymd != today,
+        "next_reward": STREAK_REWARD_TABLE.get((0 if broken else current) + 1, STREAK_CAP_REWARD),
+    }
+
 
 
 class WalletOut(BaseModel):

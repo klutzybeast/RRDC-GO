@@ -10,6 +10,8 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
     const p = result.pokemon || {};
     const rewards = result.ball_rewards || {};
     const rewardEntries = Object.entries(rewards).filter(([, n]) => Number(n) > 0);
+    const isShiny = !!result.is_shiny;
+    const streak = result.streak;
     return (
         <AnimatePresence>
             {open && (
@@ -37,8 +39,19 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                         >
                         <div className="text-center">
                             <div className="text-sm uppercase tracking-widest font-bold text-river-600">Gotcha!</div>
-                            <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mt-1" data-testid="catch-pokemon-name">
+                            <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mt-1 flex items-center justify-center gap-2" data-testid="catch-pokemon-name">
                                 {p.name}
+                                {isShiny && (
+                                    <motion.span
+                                        initial={{ scale: 0, rotate: -20 }}
+                                        animate={{ scale: 1, rotate: 0 }}
+                                        transition={{ type: "spring", bounce: 0.7, delay: 0.4 }}
+                                        className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-300 px-2 py-0.5 text-[11px] font-black tracking-widest text-amber-900 shadow-lg"
+                                        data-testid="shiny-badge"
+                                    >
+                                        ✦ SHINY
+                                    </motion.span>
+                                )}
                             </h2>
                         </div>
 
@@ -86,6 +99,23 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {streak && Number(streak.current_streak) >= 1 && (
+                            <div className="mt-3 rounded-2xl bg-gradient-to-br from-orange-50 to-rose-100 border-2 border-orange-300 p-3" data-testid="streak-callout">
+                                <div className="flex items-center justify-center gap-2">
+                                    <span className="text-2xl">🔥</span>
+                                    <div className="text-center">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-orange-800">Daily Streak</div>
+                                        <div className="font-heading text-lg font-black text-slate-900">
+                                            Day {streak.current_streak}
+                                            {streak.reward_granted > 0 && (
+                                                <span className="ml-2 text-river-600">+{streak.reward_granted} balls</span>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
