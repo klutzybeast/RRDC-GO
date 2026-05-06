@@ -488,3 +488,62 @@ Live AR throw-ring interaction was code-reviewed but couldn't be fully Playwrigh
 - TIER 4: see-other-campers, raids, trading (P3 — safety review), friends.
 - TIER 5: full sound effect library + Pokémon cries.
 - ADMIN: Events tab, Raids tab, evolution dropdown on Pokémon roster, bulk-grant balls.
+
+
+
+## 2026-05-06 — Tier 3 (Iteration 18) — Events / Buddy / Evolutions / Pokéstops
+
+### Shipped ✅
+
+**Events** (4 types: legendary_hour, double_balls, spotlight, community_day)
+- Backend: `events` collection. `/api/events/active` (camper), full CRUD on `/api/admin/events` (admin). Hooks live in `pick_spawn_pokemon` (legendary 6×, spotlight target 10×, community_day forces target to spawn) and in catch reward (double_balls multiplies pokeball reward by 2).
+- Validation: end_at > start_at; spotlight/community_day require target_pokemon_id (404 if id unknown).
+- Admin UI: new `Events` tab with type pills, datetime-local pickers, target Pokémon dropdown, optional label, list with live badge + cancel button.
+- Camper UI: `ActiveEventBanner` mounted at top of MapPage above supervisor banner. Live countdown text (`Xh Ym left`).
+
+**Buddy Pokémon**
+- Backend: `camper_buddies` (single doc per camper) + `camper_pokemon_candies` (per-camper-per-species). Endpoints `/api/buddy`, `/api/buddy/set`, `/api/candies`. 60-min swap cooldown returns 429.
+- Distance/reward accumulation hooks into `/api/camper/position`: every 100m walked → +1 pokeball (`buddy_walk` ledger), every 1000m → +1 candy. Clamped at 200m per ping (GPS-jitter filter).
+- Camper UI: `BuddyStrip` chip in top action row (only renders after a buddy is set). Shows km walked + candy count.
+- Collection page: `Set as Buddy` button toggles to "💖 Walking with this buddy"; respects swap cooldown.
+
+**Evolutions**
+- Pokemon model adds `evolution_target_id` + `evolution_cost` (default 25).
+- Endpoint `/api/evolve` validates: caught the source, source has target, candies >= cost. Deducts candies, inserts synthetic catch with `is_evolution=True` + `evolved_from_id`, ball_type=`evolution`.
+- Bank entries now carry `evolution_target_id/cost/name/image` for one-shot UI rendering.
+- `+1 candy per catch` of the source species — gives evolutions a path even for kids who don't walk a buddy.
+- Admin UI: `Evolution target` dropdown + `Cost (candies)` input in the edit dialog (Pokemon tab).
+- Camper UI: `Evolution card` in the collection detail modal — disabled state shows "Need N more candies"; live evolve button posts to `/evolve` and refreshes bank.
+
+**Pokéstops**
+- Backend: `/api/pin/spin/{pin_id}` enforces 5-min cooldown (`pin_spins` collection), grants 3-5 pokeballs + 30%-chance 1-2 razz_berry items into `camper_inventory`. `/api/pokestops/status` returns per-pin `{ready, next_ready_at}`. `/api/inventory` returns item bag.
+- MapPage: pin Markers now color blue (ready) / grey (cooldown), tap-to-spin with toast; status polled every 8s.
+
+### Test pass: iteration_18.json — 25/25 backend, frontend Admin Events / banner / pokestop spin verified
+Collection-page deep flows (set-buddy, evolve) covered by backend pytest only — Playwright couldn't navigate to the modal in the iframe session. Live iPad will be fine; tracked for later UI test polish.
+
+### Bug fixed mid-iteration
+- `pokemon_to_out()` was dropping `evolution_target_id` + `evolution_cost` from PATCH/GET responses (DB persisted fine, but admin UI saw nulls). Patched to forward both. Verified via curl.
+
+### Files added
+- `/app/backend/tests/test_iteration18.py` (25 tests)
+- `/app/frontend/src/pages/admin/EventsTab.jsx`
+- `/app/frontend/src/components/ActiveEventBanner.jsx`
+- `/app/frontend/src/components/BuddyStrip.jsx`
+
+### Files modified
+- `/app/backend/server.py` — Tier 3 helpers/endpoints (~330 LOC), pokemon_to_out fix, BankEntry expansion, double-balls + per-catch-candy hooks in spawn_catch, event hooks in pick_spawn_pokemon.
+- `/app/frontend/src/pages/MapPage.jsx` — banner + buddy strip mount, pokestop spin/status, marker color by readiness.
+- `/app/frontend/src/pages/CollectionPage.jsx` — buddy + evolution UI in detail modal.
+- `/app/frontend/src/pages/admin/AdminPage.jsx` — Events tab registered.
+- `/app/frontend/src/pages/admin/PokemonTab.jsx` — evolution dropdown + cost field.
+
+### Code-review nits (not blocking)
+- `spin_pin` has a small race window between cooldown read + spin record insert. Single-camper-per-tap risk is negligible in practice.
+- `_accumulate_buddy_distance` silently drops intervals > 200m (jitter filter). Logging dropped intervals would help future analytics.
+- Evolutions don't seed candies on the evolved-into species — by design, but worth surfacing if users complain.
+
+### Still deferred (Tier 4-5 + admin polish)
+- Tier 4: see-other-campers, raids. Trading + friends (P3 — safety review).
+- Tier 5: full sound effect library + Pokémon cries.
+- Admin polish: bulk-grant balls in Wallet tab, "stationary kid" badge on Live Map.

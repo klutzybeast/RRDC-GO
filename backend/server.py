@@ -994,6 +994,8 @@ def pokemon_to_out(doc: dict) -> PokemonOut:
         image_data_url=doc.get("image_data_url", ""),
         active=bool(doc.get("active", False)),
         featured=bool(doc.get("featured", False)),
+        evolution_target_id=doc.get("evolution_target_id"),
+        evolution_cost=int(doc.get("evolution_cost", 25)),
     )
 
 
