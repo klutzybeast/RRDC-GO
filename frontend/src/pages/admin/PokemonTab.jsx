@@ -20,7 +20,7 @@ export default function PokemonTab() {
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
-    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", type: "normal", description: "", active: false, featured: false });
+    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", type: "normal", description: "", active: false, featured: false, evolution_target_id: "", evolution_cost: 25 });
     const [uploading, setUploading] = useState(false);
     const [seeding, setSeeding] = useState(false);
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -49,6 +49,8 @@ export default function PokemonTab() {
             description: p.description,
             active: p.active,
             featured: !!p.featured,
+            evolution_target_id: p.evolution_target_id || "",
+            evolution_cost: Number(p.evolution_cost ?? 25),
         });
         setOpen(true);
     };
@@ -58,6 +60,8 @@ export default function PokemonTab() {
             await adminApi.patch(`/admin/pokemon/${editing.id}`, {
                 ...form,
                 power_level: Number(form.power_level),
+                evolution_target_id: form.evolution_target_id || null,
+                evolution_cost: Number(form.evolution_cost) || 25,
             });
             toast.success("Saved");
             load();
@@ -342,6 +346,34 @@ export default function PokemonTab() {
                                 <p className="text-xs text-slate-500">Spawns 4× more often than other pokemon — use for your hand-picked camp Pokemon.</p>
                             </div>
                             <Switch checked={form.featured} onCheckedChange={(v) => setForm({ ...form, featured: v })} data-testid="pokemon-form-featured" />
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 p-3 bg-slate-50">
+                            <Label className="text-slate-900">Evolution target (optional)</Label>
+                            <p className="text-xs text-slate-500 mb-2">Catching enough of THIS Pokémon lets the camper evolve it into the chosen target.</p>
+                            <select
+                                value={form.evolution_target_id || ""}
+                                onChange={(e) => setForm({ ...form, evolution_target_id: e.target.value })}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm"
+                                data-testid="pokemon-form-evo-target"
+                            >
+                                <option value="">— No evolution —</option>
+                                {list.filter((p) => p.id !== editing?.id).map((p) => (
+                                    <option key={p.id} value={p.id}>{p.name} ({p.rarity})</option>
+                                ))}
+                            </select>
+                            <div className="mt-2 flex items-center gap-2">
+                                <Label htmlFor="evo-cost" className="text-xs text-slate-600">Cost (candies)</Label>
+                                <Input
+                                    id="evo-cost"
+                                    type="number"
+                                    min="1"
+                                    max="200"
+                                    value={form.evolution_cost}
+                                    onChange={(e) => setForm({ ...form, evolution_cost: e.target.value })}
+                                    className="w-24"
+                                    data-testid="pokemon-form-evo-cost"
+                                />
+                            </div>
                         </div>
                     </div>
                     <DialogFooter>

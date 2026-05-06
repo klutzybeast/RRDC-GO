@@ -21,10 +21,45 @@ export default function CollectionPage() {
     const [rarityFilter, setRarityFilter] = useState("all");
     const [sort, setSort] = useState("recent");
     const [selected, setSelected] = useState(null);
+    const [buddy, setBuddy] = useState(null);
+    const [candies, setCandies] = useState({});
+
+    const refreshBuddyCandies = React.useCallback(() => {
+        userApi.get("/buddy").then((r) => setBuddy(r.data)).catch(() => {});
+        userApi.get("/candies").then((r) => setCandies(r.data || {})).catch(() => {});
+    }, []);
 
     useEffect(() => {
         userApi.get("/bank").then((r) => setBank(r.data)).catch(() => setBank([]));
-    }, []);
+        refreshBuddyCandies();
+    }, [refreshBuddyCandies]);
+
+    const setBuddyTo = async (pokemon_id) => {
+        try {
+            const r = await userApi.post("/buddy/set", { pokemon_id });
+            setBuddy(r.data);
+            // brief toast via window.alert is not great; the parent has sonner. Use it.
+            (await import("sonner")).toast.success("Buddy set! Walk with them to earn candies.");
+        } catch (e) {
+            (await import("sonner")).toast.error(e?.response?.data?.detail || "Could not set buddy");
+        }
+    };
+
+    const evolveSelected = async () => {
+        if (!selected) return;
+        try {
+            const r = await userApi.post("/evolve", { pokemon_id: selected.pokemon_id });
+            const into = r.data?.evolved_into;
+            (await import("sonner")).toast.success(`Evolved ${selected.name} → ${into?.name}!`);
+            setSelected(null);
+            // Refresh bank + candies
+            const b = await userApi.get("/bank");
+            setBank(b.data);
+            refreshBuddyCandies();
+        } catch (e) {
+            (await import("sonner")).toast.error(e?.response?.data?.detail || "Could not evolve");
+        }
+    };
 
     const filtered = useMemo(() => {
         if (!bank) return [];
@@ -183,7 +218,56 @@ export default function CollectionPage() {
                                 </div>
                             </div>
                             {selected.description && <p className="mt-4 text-sm text-slate-600 leading-relaxed">{selected.description}</p>}
-                            <Button onClick={() => setSelected(null)} className="mt-5 w-full tactile-btn bg-river-500 hover:bg-river-600 text-white rounded-2xl h-12 font-heading">
+
+                            {/* Buddy + Evolve actions */}
+                            <div className="mt-4 grid grid-cols-1 gap-2">
+                                <Button
+                                    onClick={() => setBuddyTo(selected.pokemon_id)}
+                                    disabled={buddy?.pokemon_id === selected.pokemon_id || (buddy?.can_swap_at && new Date(buddy.can_swap_at) > new Date())}
+                                    variant="outline"
+                                    className="rounded-2xl h-11 font-bold border-2 border-river-300"
+                                    data-testid="set-buddy-btn"
+                                >
+                                    {buddy?.pokemon_id === selected.pokemon_id
+                                        ? "💖 Walking with this buddy"
+                                        : (buddy?.can_swap_at && new Date(buddy.can_swap_at) > new Date())
+                                            ? `Swap available in ${Math.max(1, Math.ceil((new Date(buddy.can_swap_at) - new Date()) / 60000))}m`
+                                            : "Set as Buddy"}
+                                </Button>
+                                {selected.evolution_target_id && (
+                                    <div className="rounded-2xl bg-amber-50 border-2 border-amber-200 p-3" data-testid="evolution-card">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                {selected.evolution_target_image && (
+                                                    <img src={selected.evolution_target_image} alt={selected.evolution_target_name || "evolution"} className="w-10 h-10 object-contain" />
+                                                )}
+                                                <div className="min-w-0">
+                                                    <div className="text-[10px] uppercase tracking-widest font-bold text-amber-700">Evolves into</div>
+                                                    <div className="font-heading text-sm font-black text-slate-900 truncate">{selected.evolution_target_name}</div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-[10px] uppercase tracking-widest font-bold text-slate-500">Candies</div>
+                                                <div className="font-heading text-base font-black text-slate-900 tabular-nums">
+                                                    {candies[selected.pokemon_id] || 0} / {selected.evolution_cost}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <Button
+                                            onClick={evolveSelected}
+                                            disabled={(candies[selected.pokemon_id] || 0) < selected.evolution_cost}
+                                            className="mt-3 w-full tactile-btn bg-amber-500 hover:bg-amber-600 text-white rounded-2xl h-11 font-heading"
+                                            data-testid="evolve-btn"
+                                        >
+                                            {(candies[selected.pokemon_id] || 0) < selected.evolution_cost
+                                                ? `Need ${selected.evolution_cost - (candies[selected.pokemon_id] || 0)} more candies`
+                                                : "Evolve!"}
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <Button onClick={() => setSelected(null)} className="mt-3 w-full tactile-btn bg-river-500 hover:bg-river-600 text-white rounded-2xl h-12 font-heading">
                                 Close
                             </Button>
                         </div>

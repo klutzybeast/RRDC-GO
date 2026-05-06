@@ -18,6 +18,8 @@ import ChallengesCard from "../components/ChallengesCard";
 import NearbyPanel from "../components/NearbyPanel";
 import Minimap from "../components/Minimap";
 import RustlingGrass from "../components/RustlingGrass";
+import ActiveEventBanner from "../components/ActiveEventBanner";
+import BuddyStrip from "../components/BuddyStrip";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -130,6 +132,39 @@ export default function MapPage() {
         const t = setInterval(() => _setTick((n) => (n + 1) % 1000), 1500);
         return () => clearInterval(t);
     }, []);
+
+    // Pokéstop cooldown statuses (per-pin). Polled with the same cadence as
+    // spawns (4s) so the marker color updates as cooldowns expire.
+    const [pokestopStatus, setPokestopStatus] = useState({});
+    const refreshPokestopStatus = React.useCallback(() => {
+        userApi.get("/pokestops/status").then((r) => {
+            const m = {};
+            (r.data || []).forEach((row) => { m[row.pin_id] = row; });
+            setPokestopStatus(m);
+        }).catch(() => {});
+    }, []);
+    useEffect(() => {
+        refreshPokestopStatus();
+        const t = setInterval(refreshPokestopStatus, 8000);
+        return () => clearInterval(t);
+    }, [refreshPokestopStatus]);
+
+    const spinPokestop = React.useCallback(async (pin) => {
+        try {
+            const r = await userApi.post(`/pin/spin/${pin.id}`);
+            const balls = r.data.balls || 0;
+            const items = r.data.items || {};
+            const itemsTxt = Object.entries(items).map(([k, n]) => `+${n} ${k.replace("_", " ")}`).join(", ");
+            toast.success(`📍 ${pin.name}: +${balls} balls${itemsTxt ? " · " + itemsTxt : ""}`);
+            flashDelta(balls);
+            refreshWallet();
+            refreshPokestopStatus();
+            if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
+        } catch (e) {
+            const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
+            toast.error(msg);
+        }
+    }, [refreshPokestopStatus, refreshWallet]);
 
     // Auto-claim daily bonus on mount
     useEffect(() => {
@@ -444,21 +479,26 @@ export default function MapPage() {
                         </OverlayView>
                     )}
 
-                    {pins.map((p) => (
-                        <Marker
-                            key={p.id}
-                            position={{ lat: p.latitude, lng: p.longitude }}
-                            title={p.name}
-                            icon={{
-                                path: window.google?.maps?.SymbolPath?.CIRCLE,
-                                scale: 6,
-                                fillColor: "#22C55E",
-                                fillOpacity: 0.5,
-                                strokeWeight: 1,
-                                strokeColor: "#16A34A",
-                            }}
-                        />
-                    ))}
+                    {pins.map((p) => {
+                        const status = pokestopStatus[p.id];
+                        const ready = !status || status.ready;
+                        return (
+                            <Marker
+                                key={p.id}
+                                position={{ lat: p.latitude, lng: p.longitude }}
+                                title={`${p.name}${ready ? " — tap to spin!" : " — cooling down"}`}
+                                onClick={() => spinPokestop(p)}
+                                icon={{
+                                    path: window.google?.maps?.SymbolPath?.CIRCLE,
+                                    scale: ready ? 8 : 6,
+                                    fillColor: ready ? "#3B82F6" : "#94A3B8",
+                                    fillOpacity: ready ? 0.85 : 0.45,
+                                    strokeWeight: ready ? 2 : 1,
+                                    strokeColor: ready ? "#1D4ED8" : "#64748B",
+                                }}
+                            />
+                        );
+                    })}
 
                     {rankedSpawns.map((s) => {
                         if (s.latitude == null || s.longitude == null) return null;
@@ -683,6 +723,7 @@ export default function MapPage() {
 
             {/* Supervisor challenge banner + Daily challenges + Nearby */}
             <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto space-y-2">
+                <ActiveEventBanner />
                 <SupervisorChallenge compact />
                 <div className="flex justify-end gap-2 flex-wrap">
                     {streak && (streak.current_streak > 0 || streak.caught_today) && (
@@ -717,6 +758,7 @@ export default function MapPage() {
                         catchRadius={catchRadius}
                         onPick={openCatchFor}
                     />
+                    <BuddyStrip onTap={() => nav("/collection")} />
                     <ChallengesCard onRewardClaimed={() => refreshWallet()} />
                 </div>
             </div>

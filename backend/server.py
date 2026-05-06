@@ -125,6 +125,10 @@ class PokemonOut(BaseModel):
     image_data_url: str = ""
     active: bool = False
     featured: bool = False
+    # Evolutions: when set, catching `evolution_cost` of THIS pokemon lets the
+    # camper evolve it into the slot identified by `evolution_target_id`.
+    evolution_target_id: Optional[str] = None
+    evolution_cost: int = 25
 
 
 class PokemonUpdate(BaseModel):
@@ -136,6 +140,8 @@ class PokemonUpdate(BaseModel):
     active: Optional[bool] = None
     image_data_url: Optional[str] = None
     featured: Optional[bool] = None
+    evolution_target_id: Optional[str] = None
+    evolution_cost: Optional[int] = None
 
 
 class SpawnConfig(BaseModel):
@@ -283,6 +289,10 @@ class BankEntry(BaseModel):
     count: int
     last_caught_at: datetime
     best_power: int
+    evolution_target_id: Optional[str] = None
+    evolution_cost: int = 25
+    evolution_target_name: Optional[str] = None
+    evolution_target_image: Optional[str] = None
 
 
 # ----------------------
@@ -593,9 +603,33 @@ async def load_spawn_config() -> dict:
 
 
 async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False, exclude_ids: Optional[set] = None) -> Optional[dict]:
-    weights = cfg.get("rarity_weights") or DEFAULT_RARITY_WEIGHTS
+    weights = dict(cfg.get("rarity_weights") or DEFAULT_RARITY_WEIGHTS)
     featured_boost = float(cfg.get("featured_weight_multiplier", 10.0))
     exclude_ids = exclude_ids or set()
+
+    # Active events change spawn behavior:
+    #  - legendary_hour : weight legendaries 6x more often
+    #  - community_day  : the target Pokémon ALWAYS spawns
+    #  - spotlight      : 10x weight on the target Pokémon's species
+    events = await _active_events()
+    community_target = None
+    spotlight_target = None
+    legendary_hour = False
+    for ev in events:
+        et = ev.get("event_type")
+        if et == "legendary_hour":
+            legendary_hour = True
+        elif et == "community_day" and ev.get("target_pokemon_id"):
+            community_target = ev["target_pokemon_id"]
+        elif et == "spotlight" and ev.get("target_pokemon_id"):
+            spotlight_target = ev["target_pokemon_id"]
+    if legendary_hour:
+        weights = dict(weights)
+        weights["legendary"] = int(weights.get("legendary", 5)) * 6
+    if community_target:
+        pk = await db.pokemon.find_one({"id": community_target, "active": True}, {"_id": 0})
+        if pk and pk["id"] not in exclude_ids:
+            return pk
 
     # If force_featured: pick UNIFORMLY from active featured pokemon (excluding any
     # already in the burst). This guarantees JonG, Mark, and any other supervisor
@@ -626,8 +660,13 @@ async def pick_spawn_pokemon(cfg: dict, force_featured: bool = False, exclude_id
         fresh = [d for d in docs if d["id"] not in exclude_ids]
         pool = fresh if fresh else docs
         # Featured weighting is gentler now (×3) so non-supervisor pokemon
-        # actually show up regularly.
-        weights_list = [featured_boost if d.get("featured") else 1.0 for d in pool]
+        # actually show up regularly. Spotlight target gets a x10 bump.
+        weights_list = []
+        for d in pool:
+            w = featured_boost if d.get("featured") else 1.0
+            if spotlight_target and d.get("id") == spotlight_target:
+                w *= 10
+            weights_list.append(w)
         return random.choices(pool, weights=weights_list, k=1)[0]
     # Fallback: any active pokemon, still excluding duplicates if possible
     docs = await db.pokemon.find({"active": True}, {"_id": 0}).to_list(1000)
@@ -1486,8 +1525,20 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
 
     # Catch rewards — pokeballs + maybe fancy ball milestone
     reward = CATCH_REWARD.get(rarity, 0)
+    # Double-balls event multiplies the pokeball reward
+    active_evs = await _active_events()
+    is_double_balls = any(e.get("event_type") == "double_balls" for e in active_evs)
+    if is_double_balls:
+        reward = reward * 2
     if reward > 0:
-        wallet = await adjust_ball(user["id"], "pokeball", reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"]})
+        wallet = await adjust_ball(user["id"], "pokeball", reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"], "double_balls": is_double_balls})
+    # Candy-on-catch: every catch of a species gives 1 candy of that species.
+    # Powers the Evolutions sprint without forcing kids to walk a buddy.
+    await db.camper_pokemon_candies.update_one(
+        {"camper_id": user["id"], "pokemon_id": pokemon["id"]},
+        {"$inc": {"candies": 1}, "$set": {"updated_at": now_utc().isoformat()}},
+        upsert=True,
+    )
     ball_rewards = {}
     # Award fancy balls based on rarity milestones
     for fancy_ball, rule in BALL_EARN_THRESHOLDS.items():
@@ -1645,7 +1696,23 @@ async def bank(user=Depends(get_current_user)):
     ]
     docs = await db.catches.aggregate(pipeline).to_list(500)
     out = []
+    # Pre-fetch the evolution-target metadata in one pass to keep the
+    # endpoint fast.
+    src_ids = [d["_id"] for d in docs]
+    src_pokemon = {}
+    if src_ids:
+        async for p in db.pokemon.find({"id": {"$in": src_ids}}, {"_id": 0, "id": 1, "evolution_target_id": 1, "evolution_cost": 1}):
+            src_pokemon[p["id"]] = p
+    target_ids = [p.get("evolution_target_id") for p in src_pokemon.values() if p.get("evolution_target_id")]
+    target_meta = {}
+    if target_ids:
+        async for p in db.pokemon.find({"id": {"$in": target_ids}}, {"_id": 0, "id": 1, "name": 1, "image_data_url": 1}):
+            target_meta[p["id"]] = p
     for d in docs:
+        meta = src_pokemon.get(d["_id"]) or {}
+        ev_target_id = meta.get("evolution_target_id")
+        ev_cost = int(meta.get("evolution_cost", 25))
+        target = target_meta.get(ev_target_id) if ev_target_id else None
         out.append(BankEntry(
             pokemon_id=d["_id"],
             name=d["name"],
@@ -1657,6 +1724,10 @@ async def bank(user=Depends(get_current_user)):
             count=int(d["count"]),
             last_caught_at=datetime.fromisoformat(d["last_caught_at"]),
             best_power=int(d.get("best_power", 0)),
+            evolution_target_id=ev_target_id,
+            evolution_cost=ev_cost,
+            evolution_target_name=target.get("name") if target else None,
+            evolution_target_image=target.get("image_data_url") if target else None,
         ))
     return out
 
@@ -2237,7 +2308,7 @@ async def save_camper_position(req: PositionReq, user=Depends(get_current_user))
                 },
                 upsert=True,
             )
-    return {"saved": should_write, "step_meters": round(dist_m, 2)}
+    return {"saved": should_write, "step_meters": round(dist_m, 2), "buddy": (await _accumulate_buddy_distance(user["id"], dist_m) if (should_write and prev and 0 < dist_m < 200) else {"balls": 0, "candies": 0})}
 
 
 @api.get("/admin/camper-positions")
@@ -2680,6 +2751,392 @@ async def get_streak(user=Depends(get_current_user)):
         "at_risk": at_risk and last_ymd != today,
         "next_reward": STREAK_REWARD_TABLE.get((0 if broken else current) + 1, STREAK_CAP_REWARD),
     }
+
+
+
+# ===========================================================
+# TIER 3 — Events, Buddy, Evolutions, Pokestops items
+# ===========================================================
+
+EVENT_TYPES = ("legendary_hour", "double_balls", "spotlight", "community_day")
+
+
+class EventReq(BaseModel):
+    event_type: Literal["legendary_hour", "double_balls", "spotlight", "community_day"]
+    start_at: datetime
+    end_at: datetime
+    target_pokemon_id: Optional[str] = None
+    label: Optional[str] = None
+
+
+class EventOut(BaseModel):
+    id: str
+    event_type: str
+    label: Optional[str] = None
+    start_at: datetime
+    end_at: datetime
+    target_pokemon_id: Optional[str] = None
+    target_pokemon_name: Optional[str] = None
+    active: bool = False
+
+
+async def _active_events(now: Optional[datetime] = None) -> list:
+    """All events currently within their start/end window."""
+    n = (now or now_utc()).isoformat()
+    docs = []
+    async for ev in db.events.find(
+        {"start_at": {"$lte": n}, "end_at": {"$gte": n}, "cancelled": {"$ne": True}},
+        {"_id": 0},
+    ):
+        docs.append(ev)
+    return docs
+
+
+async def _event_to_out(ev: dict) -> EventOut:
+    name = None
+    if ev.get("target_pokemon_id"):
+        p = await db.pokemon.find_one({"id": ev["target_pokemon_id"]}, {"_id": 0, "name": 1})
+        name = p.get("name") if p else None
+    now = now_utc()
+    start = datetime.fromisoformat(ev["start_at"])
+    end = datetime.fromisoformat(ev["end_at"])
+    return EventOut(
+        id=ev["id"],
+        event_type=ev["event_type"],
+        label=ev.get("label"),
+        start_at=start,
+        end_at=end,
+        target_pokemon_id=ev.get("target_pokemon_id"),
+        target_pokemon_name=name,
+        active=start <= now <= end and not ev.get("cancelled", False),
+    )
+
+
+@api.get("/events/active", response_model=List[EventOut])
+async def get_active_events(user=Depends(get_current_user)):
+    out = []
+    for ev in await _active_events():
+        out.append(await _event_to_out(ev))
+    return out
+
+
+@api.get("/admin/events", response_model=List[EventOut])
+async def admin_list_events(admin=Depends(get_current_admin)):
+    out = []
+    async for ev in db.events.find({}, {"_id": 0}).sort("start_at", -1):
+        out.append(await _event_to_out(ev))
+    return out
+
+
+@api.post("/admin/events", response_model=EventOut)
+async def admin_create_event(req: EventReq, admin=Depends(get_current_admin)):
+    if req.end_at <= req.start_at:
+        raise HTTPException(400, "end_at must be after start_at")
+    if req.event_type in ("spotlight", "community_day") and not req.target_pokemon_id:
+        raise HTTPException(400, "target_pokemon_id is required for spotlight / community_day")
+    if req.target_pokemon_id:
+        pk = await db.pokemon.find_one({"id": req.target_pokemon_id}, {"_id": 0})
+        if not pk:
+            raise HTTPException(404, "target_pokemon_id not found")
+    ev_doc = {
+        "id": str(uuid.uuid4()),
+        "event_type": req.event_type,
+        "label": req.label,
+        "start_at": req.start_at.isoformat(),
+        "end_at": req.end_at.isoformat(),
+        "target_pokemon_id": req.target_pokemon_id,
+        "cancelled": False,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.events.insert_one(ev_doc)
+    return await _event_to_out(ev_doc)
+
+
+@api.delete("/admin/events/{event_id}")
+async def admin_cancel_event(event_id: str, admin=Depends(get_current_admin)):
+    res = await db.events.update_one({"id": event_id}, {"$set": {"cancelled": True}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Event not found")
+    return {"cancelled": True}
+
+
+# --- Buddy Pokémon ---
+
+class BuddySetReq(BaseModel):
+    pokemon_id: str
+
+
+class BuddyOut(BaseModel):
+    pokemon_id: Optional[str] = None
+    pokemon_name: Optional[str] = None
+    pokemon_image_data_url: Optional[str] = None
+    rarity: Optional[str] = None
+    set_at: Optional[datetime] = None
+    distance_with_buddy_m: float = 0.0
+    candies: int = 0
+    can_swap_at: Optional[datetime] = None  # None = can swap right now
+
+
+BUDDY_BALL_PER_M = 100.0   # +1 pokeball per 100 m walked
+BUDDY_CANDY_PER_M = 1000.0 # +1 candy per 1000 m walked
+BUDDY_SWAP_COOLDOWN_MIN = 60
+
+
+async def _buddy_get(camper_id: str) -> Optional[dict]:
+    return await db.camper_buddies.find_one({"id": camper_id}, {"_id": 0})
+
+
+async def _buddy_candies(camper_id: str, pokemon_id: str) -> int:
+    doc = await db.camper_pokemon_candies.find_one(
+        {"camper_id": camper_id, "pokemon_id": pokemon_id}, {"_id": 0, "candies": 1}
+    )
+    return int(doc.get("candies", 0)) if doc else 0
+
+
+async def _buddy_to_out(buddy: dict) -> BuddyOut:
+    if not buddy or not buddy.get("pokemon_id"):
+        return BuddyOut()
+    p = await db.pokemon.find_one({"id": buddy["pokemon_id"]}, {"_id": 0})
+    can_swap_at = None
+    if buddy.get("set_at"):
+        sa = datetime.fromisoformat(buddy["set_at"])
+        elapsed = (now_utc() - sa).total_seconds() / 60.0
+        if elapsed < BUDDY_SWAP_COOLDOWN_MIN:
+            can_swap_at = sa + timedelta(minutes=BUDDY_SWAP_COOLDOWN_MIN)
+    candies = await _buddy_candies(buddy["camper_id"], buddy["pokemon_id"])
+    return BuddyOut(
+        pokemon_id=buddy["pokemon_id"],
+        pokemon_name=p.get("name") if p else None,
+        pokemon_image_data_url=p.get("image_data_url") if p else None,
+        rarity=p.get("rarity") if p else None,
+        set_at=datetime.fromisoformat(buddy["set_at"]) if buddy.get("set_at") else None,
+        distance_with_buddy_m=float(buddy.get("distance_with_buddy_m", 0)),
+        candies=candies,
+        can_swap_at=can_swap_at,
+    )
+
+
+@api.get("/buddy", response_model=BuddyOut)
+async def get_buddy(user=Depends(get_current_user)):
+    return await _buddy_to_out(await _buddy_get(user["id"]))
+
+
+@api.post("/buddy/set", response_model=BuddyOut)
+async def set_buddy(req: BuddySetReq, user=Depends(get_current_user)):
+    # Camper must have caught this pokemon
+    has_caught = await db.catches.find_one({"group_id": user["id"], "pokemon_id": req.pokemon_id}, {"_id": 0, "id": 1})
+    if not has_caught:
+        raise HTTPException(400, "You haven't caught that Pokémon yet")
+    cur = await _buddy_get(user["id"])
+    if cur and cur.get("set_at") and cur.get("pokemon_id") != req.pokemon_id:
+        sa = datetime.fromisoformat(cur["set_at"])
+        if (now_utc() - sa).total_seconds() / 60.0 < BUDDY_SWAP_COOLDOWN_MIN:
+            mins_left = int(BUDDY_SWAP_COOLDOWN_MIN - (now_utc() - sa).total_seconds() / 60.0)
+            raise HTTPException(429, f"You can swap your buddy in {mins_left} more minutes")
+    doc = {
+        "id": user["id"],  # one buddy doc per camper
+        "camper_id": user["id"],
+        "pokemon_id": req.pokemon_id,
+        "set_at": now_utc().isoformat(),
+        "distance_with_buddy_m": 0.0,
+        "ball_progress_m": 0.0,
+        "candy_progress_m": 0.0,
+    }
+    await db.camper_buddies.update_one({"id": user["id"]}, {"$set": doc}, upsert=True)
+    return await _buddy_to_out(doc)
+
+
+async def _accumulate_buddy_distance(camper_id: str, distance_m: float) -> dict:
+    """Called from the position updater: adds walked distance to the buddy
+    progress, granting balls/candies per the thresholds. Returns a summary
+    of any rewards triggered (used to surface a toast on the next poll)."""
+    if distance_m <= 0:
+        return {"balls": 0, "candies": 0}
+    buddy = await db.camper_buddies.find_one({"id": camper_id}, {"_id": 0})
+    if not buddy or not buddy.get("pokemon_id"):
+        return {"balls": 0, "candies": 0}
+    new_total = float(buddy.get("distance_with_buddy_m", 0)) + distance_m
+    new_ball_prog = float(buddy.get("ball_progress_m", 0)) + distance_m
+    new_candy_prog = float(buddy.get("candy_progress_m", 0)) + distance_m
+    balls = int(new_ball_prog // BUDDY_BALL_PER_M)
+    candies = int(new_candy_prog // BUDDY_CANDY_PER_M)
+    new_ball_prog -= balls * BUDDY_BALL_PER_M
+    new_candy_prog -= candies * BUDDY_CANDY_PER_M
+    await db.camper_buddies.update_one(
+        {"id": camper_id},
+        {"$set": {
+            "distance_with_buddy_m": new_total,
+            "ball_progress_m": new_ball_prog,
+            "candy_progress_m": new_candy_prog,
+        }},
+    )
+    if balls > 0:
+        await adjust_ball(camper_id, "pokeball", balls, "buddy_walk", {"pokemon_id": buddy["pokemon_id"]})
+    if candies > 0:
+        await db.camper_pokemon_candies.update_one(
+            {"camper_id": camper_id, "pokemon_id": buddy["pokemon_id"]},
+            {"$inc": {"candies": candies},
+             "$set": {"updated_at": now_utc().isoformat()}},
+            upsert=True,
+        )
+    return {"balls": balls, "candies": candies, "pokemon_id": buddy["pokemon_id"]}
+
+
+# --- Evolutions ---
+
+class EvolveReq(BaseModel):
+    pokemon_id: str
+
+
+@api.post("/evolve")
+async def evolve(req: EvolveReq, user=Depends(get_current_user)):
+    src = await db.pokemon.find_one({"id": req.pokemon_id}, {"_id": 0})
+    if not src:
+        raise HTTPException(404, "Pokemon not found")
+    target_id = src.get("evolution_target_id")
+    cost = int(src.get("evolution_cost", 25))
+    if not target_id:
+        raise HTTPException(400, "This Pokémon doesn't evolve")
+    target = await db.pokemon.find_one({"id": target_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Evolution target Pokémon not found")
+    candies_doc = await db.camper_pokemon_candies.find_one(
+        {"camper_id": user["id"], "pokemon_id": req.pokemon_id}, {"_id": 0}
+    )
+    have = int(candies_doc.get("candies", 0)) if candies_doc else 0
+    if have < cost:
+        raise HTTPException(400, f"Need {cost} candies — you have {have}")
+    has_caught = await db.catches.find_one({"group_id": user["id"], "pokemon_id": req.pokemon_id}, {"_id": 0, "id": 1})
+    if not has_caught:
+        raise HTTPException(400, "You haven't caught the source Pokémon yet")
+    # Deduct candies
+    await db.camper_pokemon_candies.update_one(
+        {"camper_id": user["id"], "pokemon_id": req.pokemon_id},
+        {"$inc": {"candies": -cost}},
+    )
+    # Synthetic catch record for the evolved form (counted in collection)
+    base_pl = int(target.get("power_level", 100))
+    evolved_pl = max(1, min(1000, int(base_pl * random.uniform(0.95, 1.0))))
+    catch_doc = {
+        "id": str(uuid.uuid4()),
+        "group_id": user["id"],
+        "group_name": user["group_name"],
+        "caught_by": user["username"],
+        "pokemon_id": target["id"],
+        "pokemon_name": target["name"],
+        "pokemon_image": target.get("image_data_url", ""),
+        "pokemon_description": target.get("description", ""),
+        "pokemon_type": target.get("type", "normal"),
+        "rarity": target.get("rarity", "common"),
+        "ball_type": "evolution",
+        "power_rolled": evolved_pl,
+        "is_shiny": False,
+        "is_evolution": True,
+        "evolved_from_id": src["id"],
+        "caught_at": now_utc().isoformat(),
+    }
+    await db.catches.insert_one(catch_doc)
+    return {
+        "ok": True,
+        "evolved_from": pokemon_to_out(src),
+        "evolved_into": pokemon_to_out(target),
+        "candies_remaining": have - cost,
+        "power_rolled": evolved_pl,
+    }
+
+
+@api.get("/candies")
+async def list_candies(user=Depends(get_current_user)):
+    out = {}
+    async for d in db.camper_pokemon_candies.find(
+        {"camper_id": user["id"]}, {"_id": 0, "pokemon_id": 1, "candies": 1}
+    ):
+        if int(d.get("candies", 0)) > 0:
+            out[d["pokemon_id"]] = int(d["candies"])
+    return out
+
+
+# --- Pokéstops cooldown + items ---
+
+POKESTOP_COOLDOWN_SEC = 300  # 5 minutes
+POKESTOP_BALL_MIN, POKESTOP_BALL_MAX = 3, 5
+RAZZ_BERRY_DROP_RATE = 0.30  # 30% chance per spin
+RAZZ_BERRY_MIN, RAZZ_BERRY_MAX = 1, 2
+
+
+@api.post("/pin/spin/{pin_id}")
+async def spin_pin(pin_id: str, user=Depends(get_current_user)):
+    pin = await db.map_pins.find_one({"id": pin_id, "active": True}, {"_id": 0})
+    if not pin:
+        raise HTTPException(404, "Pokéstop not found")
+    last = await db.pin_spins.find_one(
+        {"camper_id": user["id"], "pin_id": pin_id}, {"_id": 0}, sort=[("spun_at", -1)]
+    )
+    if last:
+        elapsed = (now_utc() - datetime.fromisoformat(last["spun_at"])).total_seconds()
+        if elapsed < POKESTOP_COOLDOWN_SEC:
+            mins = max(1, int((POKESTOP_COOLDOWN_SEC - elapsed) // 60))
+            secs = int((POKESTOP_COOLDOWN_SEC - elapsed) % 60)
+            raise HTTPException(429, f"Pokéstop on cooldown — try again in {mins}m{secs}s")
+    # Roll rewards
+    balls = random.randint(POKESTOP_BALL_MIN, POKESTOP_BALL_MAX)
+    items = {}
+    if random.random() < RAZZ_BERRY_DROP_RATE:
+        items["razz_berry"] = random.randint(RAZZ_BERRY_MIN, RAZZ_BERRY_MAX)
+    # Apply rewards
+    await adjust_ball(user["id"], "pokeball", balls, "pokestop_spin", {"pin_id": pin_id})
+    if items:
+        for itm, n in items.items():
+            await db.camper_inventory.update_one(
+                {"camper_id": user["id"]},
+                {"$inc": {f"items.{itm}": n}, "$set": {"updated_at": now_utc().isoformat()}},
+                upsert=True,
+            )
+    await db.pin_spins.insert_one({
+        "id": str(uuid.uuid4()),
+        "camper_id": user["id"],
+        "pin_id": pin_id,
+        "spun_at": now_utc().isoformat(),
+        "balls": balls,
+        "items": items,
+    })
+    return {"ok": True, "balls": balls, "items": items, "next_available_at": (now_utc() + timedelta(seconds=POKESTOP_COOLDOWN_SEC)).isoformat()}
+
+
+@api.get("/inventory")
+async def get_inventory(user=Depends(get_current_user)):
+    doc = await db.camper_inventory.find_one({"camper_id": user["id"]}, {"_id": 0}) or {}
+    return {"items": doc.get("items", {})}
+
+
+@api.get("/pokestops/status")
+async def pokestops_status(user=Depends(get_current_user)):
+    """Return per-pin cooldown info for the camper's currently visible pins."""
+    out = []
+    pins = []
+    async for p in db.map_pins.find({"active": True}, {"_id": 0, "id": 1}):
+        pins.append(p["id"])
+    if not pins:
+        return out
+    cur = db.pin_spins.find(
+        {"camper_id": user["id"], "pin_id": {"$in": pins}}, {"_id": 0, "pin_id": 1, "spun_at": 1}
+    ).sort("spun_at", -1)
+    seen_pin = {}
+    async for s in cur:
+        if s["pin_id"] not in seen_pin:
+            seen_pin[s["pin_id"]] = s["spun_at"]
+    now_iso = now_utc()
+    for pid in pins:
+        last_iso = seen_pin.get(pid)
+        ready = True
+        next_ready = None
+        if last_iso:
+            elapsed = (now_iso - datetime.fromisoformat(last_iso)).total_seconds()
+            if elapsed < POKESTOP_COOLDOWN_SEC:
+                ready = False
+                next_ready = (datetime.fromisoformat(last_iso) + timedelta(seconds=POKESTOP_COOLDOWN_SEC)).isoformat()
+        out.append({"pin_id": pid, "ready": ready, "next_ready_at": next_ready})
+    return out
 
 
 
