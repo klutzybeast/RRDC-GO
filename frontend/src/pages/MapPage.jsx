@@ -676,7 +676,7 @@ export default function MapPage() {
             </button>
 
             {/* Top bar */}
-            <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 pointer-events-none safe-top">
+            <div className={`absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
                 <div className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 pointer-events-auto min-w-0" data-testid="camper-badge">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                     <span className="truncate max-w-[34vw] sm:max-w-none">

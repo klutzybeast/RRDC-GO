@@ -648,3 +648,62 @@ Result: every defeat returned 500 and granted nothing. Fixed both, plus:
 - **Trading + Friends** (P3 — safety review needed)
 - **Admin polish**: bulk-grant balls in Wallet tab, "stationary kid" badge on Live Map
 - **Razz berries / Lucky eggs activation**: drops into inventory work; need AR-screen consumer
+
+
+
+## 2026-05-06 — Tier 5/6 (Iteration 21) — Friends + Daily Gifts + Trading + bulk-upload state-loss fix + onboarding z-index audit
+
+### Director-ratified safety policy (kid-safe spec)
+1. **1b** — Same-group only auto-connect (no friend codes, no roster browse)
+2. **2d** — Friends list + 1-for-1 trade + daily gift (no chat ever)
+3. **3c** — Trade requires both campers within `trade_proximity_m` (default 30m) of each other
+4. **4d** — Master toggle + audit log + 24h camper revert + admin override revert
+5. **5b** — No in-app report button — supervisors handle in person
+
+### Shipped ✅
+
+**Friends**
+- `GET /api/friends` — same-group peers minus self with first_name, last_seen_at, catches_count, can_send_gift. Returns [] when SpawnConfig.social_enabled=False.
+
+**Daily Gifts**
+- `POST /api/gifts/send {to_camper_id}` — once-per-local-tz-day cooldown per (sender→receiver) pair; grants 3-6 pokeballs to receiver via the `daily_gifts` collection.
+- `GET /api/gifts/inbox` — receiver's gift list newest first.
+- `POST /api/gifts/{id}/open` — credits balls via `gift_opened` ledger entry; idempotent re-open returns `already_opened: true`.
+
+**Trades** (`trades` collection)
+- `POST /api/trades/propose` — same-group, same-rarity, 24h TTL, ownership re-check on both sides, daily cap 3.
+- `POST /api/trades/{id}/accept` — receiver-only, status==proposed, expires-at-not-passed, BOTH camper positions <10min stale AND within `trade_proximity_m`. **Atomic flip-guard** on status to prevent concurrent double-accept (matches raid-defeat pattern from iter_19). Synthetic catches inserted with `ball_type='trade'`, `is_trade=true`, `traded_from_id=<other_camper>`. Sets `revert_until = now+24h`.
+- `POST /api/trades/{id}/reject` — either party, proposed only.
+- `POST /api/trades/{id}/revert` — camper-side, 24h window, both Pokémon swap back.
+- `GET/POST /api/admin/trades` and `/admin/trades/{id}/revert` — admin override revert can reverse ANY accepted trade with `reverted_by_admin=true` audit.
+
+**SpawnConfig additions**
+- `social_enabled: bool = True` — master kill-switch (master toggle in 4d)
+- `trade_proximity_m: float = 30.0`
+- `trade_daily_cap: int = 3`
+
+**Frontend**
+- `/friends` route → `FriendsPage` with 3 tabs (Friends, Gifts, Trades) — full data-testid coverage. Trade card shows YOU GIVE / YOU GET symmetric Pokémon view + status pill. Accept/Reject/Revert buttons gated correctly by role and revert window.
+- New `open-friends-btn` (Users icon) on MapPage top-row.
+
+**Bulk-pokemon-upload state loss FIX**
+- `bulkItems` now persisted to `sessionStorage` so iOS Safari tab eviction no longer loses hours of typing. On restore, rows whose File handle was lost render as **"Re-pick image"** placeholders (amber) and re-attach by filename when the user re-picks the same images. Cancelling the file picker no longer wipes the staging list. Picking files now **appends** instead of replacing.
+
+**Onboarding z-index audit FIX**
+- BOTH MapPage action rows now hide (opacity-0 + pointer-events-none) while the welcome onboarding modal is up — the iter_20 carry-over bug is now fully resolved.
+
+### Test pass: iteration_21.json — 26/26 backend, FriendsPage flow + tabs verified, sessionStorage code review verified
+
+### Files added
+- `/app/backend/tests/test_iteration21.py` (26 tests)
+- `/app/frontend/src/pages/FriendsPage.jsx`
+
+### Files modified
+- `/app/backend/server.py` — Tier 5/6 module (~330 LOC), atomic-flip on /trades/accept, SpawnConfig fields.
+- `/app/frontend/src/pages/admin/PokemonTab.jsx` — sessionStorage persistence + needsReupload re-attach + cancel-safe + non-destructive append.
+- `/app/frontend/src/pages/MapPage.jsx` — open-friends-btn + onboarding-gate on BOTH action rows.
+- `/app/frontend/src/App.js` — /friends route.
+
+### Backlog (non-blocking)
+- Trade daily cap counts ACCEPTED only — director may want to count PROPOSED too. Director call.
+- Trade screen propose flow currently requires the camper to already know the friend's `to_camper_id` — not yet exposed via "Propose trade" button on Collection detail. Easy add when needed.

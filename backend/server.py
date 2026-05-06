@@ -3848,14 +3848,11 @@ async def accept_trade(trade_id: str, user=Depends(get_current_user)):
         raise HTTPException(400, "Your friend no longer has the Pokémon they offered")
     if not await _has_caught(t["receiver_id"], t["request_pokemon_id"]):
         raise HTTPException(400, "You no longer have the Pokémon they're asking for")
-    # Execute the swap. Atomic delete-then-grant pairs per side.
-    await _delete_one_catch(t["proposer_id"], t["offer_pokemon_id"])
-    await _grant_traded_pokemon(t["receiver_id"], t["offer_pokemon_id"], source_camper_id=t["proposer_id"])
-    await _delete_one_catch(t["receiver_id"], t["request_pokemon_id"])
-    await _grant_traded_pokemon(t["proposer_id"], t["request_pokemon_id"], source_camper_id=t["receiver_id"])
+    # Atomic flip — only the FIRST concurrent /accept on a 'proposed' trade
+    # progresses to the swap. Any racing call hits 0 modified and exits cleanly.
     revert_until = now_utc() + timedelta(hours=TRADE_REVERT_HOURS)
-    await db.trades.update_one(
-        {"id": trade_id},
+    flip = await db.trades.update_one(
+        {"id": trade_id, "status": "proposed"},
         {"$set": {
             "status": "accepted",
             "completed_at": now_utc().isoformat(),
@@ -3863,6 +3860,13 @@ async def accept_trade(trade_id: str, user=Depends(get_current_user)):
             "revert_until": revert_until.isoformat(),
         }},
     )
+    if flip.modified_count == 0:
+        raise HTTPException(409, "Trade already completed by another tap — refresh to see the result")
+    # Execute the swap. Atomic delete-then-grant pairs per side.
+    await _delete_one_catch(t["proposer_id"], t["offer_pokemon_id"])
+    await _grant_traded_pokemon(t["receiver_id"], t["offer_pokemon_id"], source_camper_id=t["proposer_id"])
+    await _delete_one_catch(t["receiver_id"], t["request_pokemon_id"])
+    await _grant_traded_pokemon(t["proposer_id"], t["request_pokemon_id"], source_camper_id=t["receiver_id"])
     refreshed = await db.trades.find_one({"id": trade_id}, {"_id": 0})
     return await _trade_to_out(refreshed)
 
