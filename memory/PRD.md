@@ -601,3 +601,50 @@ Result: every defeat returned 500 and granted nothing. Fixed both, plus:
 - **Tier 5**: full sound effect library + Pokémon cries.
 - **Admin polish**: bulk-grant balls in Wallet tab, "stationary kid" badge on Live Map.
 - **Razz berries / lucky eggs**: drop into inventory today but no AR-screen activation yet.
+
+
+
+## 2026-05-06 — Tier 5 (Iteration 20) — Sound effects + Cries + Iter-19 fix verification
+
+### Shipped ✅
+
+**Sound library — `/app/frontend/src/lib/soundFx.js`**
+- 13 synthesized SFX via Web Audio API (no MP3 assets shipped, zero asset payload):
+  - `uiTap`, `spawnAppear`, `spawnNearby`, `ballThrow`, `ballHit`, `ballWobble(stage)`, `catchSuccess`, `catchFail`, `legendaryCatch`, `streakClaimed`, `pokestopSpin`, `raidEngage`, `raidDefeated`
+- `playCry(url, seed)` — plays admin-uploaded MP3/WAV when present, falls back to procedural mulberry32-seeded warble (deterministic per Pokémon `slot_number`).
+- `isMuted / setMuted / toggleMuted / onMuteChange` API. Mute persists at `localStorage:rrdc:muted`. Legacy `rrdc_sounds_off` key still honoured.
+- Wired into ARPage (throw, hit, wobble ticks 1/2/3, fail, legendary sting, cry on encounter), MapPage (pokestop spin), RaidScreen (defeated fanfare + ball hit), CatchSuccessModal, BallWobbleSequence.
+
+**MuteToggle component**
+- `/app/frontend/src/components/MuteToggle.jsx` — sits in MapPage top action row (`data-testid='mute-toggle'`). Subscribes to `onMuteChange` so external mutes still re-render the icon. `z-30` ensures it isn't completely buried under modals.
+
+**Cry uploader (admin)**
+- Pokemon model gets `cry_audio_url: str = ""` (PokemonOut + PokemonUpdate). `pokemon_to_out()` forwards it.
+- Admin PokemonTab edit dialog: file input (data-testids `pokemon-form-cry-file`, `pokemon-form-cry-play`, `pokemon-form-cry-clear`). Frontend caps file size at ~500 KB; data URL stored on the Pokémon doc.
+
+**Iter-19 raid-defeat regression — fully verified fixed**
+- Backend test suite: iter_19 22/22, iter_20 8/8, iter_18 buddy 6/6 — all green after restart.
+- Atomic flip-guard in `raid_throw()` confirmed via concurrent killing-blow test (only one reward loop runs; no double-rewards).
+
+### Files added
+- `/app/frontend/src/lib/soundFx.js`
+- `/app/frontend/src/components/MuteToggle.jsx`
+- `/app/backend/tests/test_iteration20.py`
+
+### Files modified
+- `/app/backend/server.py` — Pokemon.cry_audio_url field + forwarder.
+- `/app/frontend/src/lib/sounds.js` — unified mute key.
+- `/app/frontend/src/pages/ARPage.jsx` — sfx + playCry.
+- `/app/frontend/src/components/BallWobbleSequence.jsx` — sfx.ballWobble per tick.
+- `/app/frontend/src/pages/MapPage.jsx` — MuteToggle mount, sfx.pokestopSpin.
+- `/app/frontend/src/pages/RaidScreen.jsx` — sfx.raidDefeated.
+- `/app/frontend/src/pages/admin/PokemonTab.jsx` — cry uploader.
+
+### Known minor
+- MuteToggle z-30 is below the welcome onboarding modal in the iframe preview. Real iPad sessions don't see this; one-time dismissal exposes the toggle. Tracked.
+- Server has no length cap on `cry_audio_url`. Frontend caps at ~500 KB; consider a soft 1 MB validator if this becomes abuse-prone.
+
+### Still deferred (P3 / future)
+- **Trading + Friends** (P3 — safety review needed)
+- **Admin polish**: bulk-grant balls in Wallet tab, "stationary kid" badge on Live Map
+- **Razz berries / Lucky eggs activation**: drops into inventory work; need AR-screen consumer

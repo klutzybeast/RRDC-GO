@@ -15,7 +15,7 @@ export default function MuteToggle({ className = "" }) {
                 const now = toggleMuted();
                 if (!now) sfx.uiTap();
             }}
-            className={`bg-white/95 backdrop-blur-sm rounded-full p-2 shadow-lg hover:bg-white transition-colors ${className}`}
+            className={`relative z-30 bg-white/95 backdrop-blur-sm rounded-full p-2 shadow-lg ring-1 ring-slate-200 hover:bg-white transition-colors ${className}`}
             title={muted ? "Unmute sound effects" : "Mute sound effects"}
             data-testid="mute-toggle"
         >
