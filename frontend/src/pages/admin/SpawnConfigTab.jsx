@@ -33,6 +33,7 @@ export default function SpawnConfigTab() {
                 camp_default_zoom: Number(cfg.camp_default_zoom || 17),
                 rarity_weights: Object.fromEntries(RARITIES.map((r) => [r, Number(cfg.rarity_weights?.[r] ?? 0)])),
                 catch_rates: Object.fromEntries(RARITIES.map((r) => [r, Math.max(0, Math.min(1, Number(cfg.catch_rates?.[r] ?? 0)))])),
+                show_group_positions: !!cfg.show_group_positions,
                 scheduled_windows: (cfg.scheduled_windows || [])
                     .filter((w) => w.start && w.end)
                     .map((w) => ({
@@ -240,6 +241,22 @@ export default function SpawnConfigTab() {
                         <span>40 m</span>
                         <span>80 m — Easy</span>
                     </div>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 flex items-center justify-between">
+                    <div>
+                        <Label className="text-base">See same-group teammates on the map</Label>
+                        <p className="text-xs text-slate-500 mt-0.5 max-w-md">
+                            Kid-safe peer overlay. Same-group only · first-name only · no chat · stale entries (10+ min) hidden automatically. Disable globally if you'd rather kids focus on their own catches.
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={!!cfg.show_group_positions}
+                        onChange={(e) => setCfg({ ...cfg, show_group_positions: e.target.checked })}
+                        className="w-6 h-6 accent-river-600 cursor-pointer"
+                        data-testid="show-group-positions-toggle"
+                    />
                 </div>
 
                 <div>

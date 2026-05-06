@@ -164,6 +164,8 @@ class SpawnConfig(BaseModel):
     # (with timezone). If ANY window is non-empty for today, the game is
     # gated by the windows instead of (or in addition to) active_hours_*.
     scheduled_windows: list = Field(default_factory=list)
+    # When True, campers can see same-group teammates (anonymized first-name + position) on the map.
+    show_group_positions: bool = True
 
 
 class CamperOut(BaseModel):
@@ -3139,6 +3141,333 @@ async def pokestops_status(user=Depends(get_current_user)):
                 next_ready = (datetime.fromisoformat(last_iso) + timedelta(seconds=POKESTOP_COOLDOWN_SEC)).isoformat()
         out.append({"pin_id": pid, "ready": ready, "next_ready_at": next_ready})
     return out
+
+
+
+# ===========================================================
+# TIER 4 — See-other-campers (kid-safe) + Raids
+# ===========================================================
+
+class GroupPositionOut(BaseModel):
+    camper_id: str
+    first_name: str  # first name only — no last name shared with peers
+    latitude: float
+    longitude: float
+    updated_at: datetime
+
+
+@api.get("/map/group-positions", response_model=List[GroupPositionOut])
+async def get_group_positions(user=Depends(get_current_user)):
+    """Same-group campers' last-known positions, anonymised to first-name only.
+    Returns nothing when an admin has globally disabled the feature in
+    SpawnConfig.show_group_positions, or for stale entries (>10 min old)."""
+    cfg = await load_spawn_config()
+    if not cfg.get("show_group_positions", True):
+        return []
+    group_code = (user.get("group_name") or "").strip().upper()
+    if not group_code:
+        return []
+    # All same-group campers EXCEPT the requester
+    camper_ids = []
+    async for c in db.campers.find(
+        {"group_code": group_code, "id": {"$ne": user["id"]}},
+        {"_id": 0, "id": 1},
+    ):
+        camper_ids.append(c["id"])
+    if not camper_ids:
+        return []
+    # First-name lookup
+    name_by_id = {}
+    async for c in db.campers.find(
+        {"id": {"$in": camper_ids}},
+        {"_id": 0, "id": 1, "first_name": 1},
+    ):
+        name_by_id[c["id"]] = c.get("first_name") or "Camper"
+    # Only positions newer than 10 minutes count
+    cutoff = (now_utc() - timedelta(minutes=10)).isoformat()
+    out = []
+    async for p in db.camper_positions.find(
+        {"camper_id": {"$in": camper_ids}, "updated_at": {"$gte": cutoff}},
+        {"_id": 0},
+    ):
+        out.append(GroupPositionOut(
+            camper_id=p["camper_id"],
+            first_name=name_by_id.get(p["camper_id"], "Camper"),
+            latitude=float(p["latitude"]),
+            longitude=float(p["longitude"]),
+            updated_at=datetime.fromisoformat(p["updated_at"]),
+        ))
+    return out
+
+
+# --- Raids ---
+
+class RaidScheduleReq(BaseModel):
+    pokemon_id: str
+    group_code: Optional[str] = None  # None = open to ALL groups
+    start_at: datetime
+    duration_minutes: int = 15
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    label: Optional[str] = None
+
+
+class RaidOut(BaseModel):
+    id: str
+    pokemon_id: str
+    pokemon_name: str
+    pokemon_image_data_url: str
+    rarity: str
+    group_code: Optional[str]
+    label: Optional[str] = None
+    start_at: datetime
+    end_at: datetime
+    latitude: Optional[float]
+    longitude: Optional[float]
+    max_hp: int
+    damage_dealt: int
+    participants: List[str] = Field(default_factory=list)
+    status: str  # scheduled | active | defeated | expired
+    can_engage: bool = False
+    is_participant: bool = False
+
+
+# Raid HP scales with rarity. Higher rarity = more participation needed.
+RAID_HP_BY_RARITY = {"common": 10, "uncommon": 18, "rare": 30, "legendary": 60}
+# Distance the camper must be within (meters) to engage.
+RAID_ENGAGE_RADIUS_M = 30.0
+
+
+def _raid_status(now: datetime, doc: dict) -> str:
+    if doc.get("status") == "defeated":
+        return "defeated"
+    start = datetime.fromisoformat(doc["start_at"])
+    end = datetime.fromisoformat(doc["end_at"])
+    if now < start:
+        return "scheduled"
+    if now > end:
+        return "expired"
+    if int(doc.get("damage_dealt", 0)) >= int(doc.get("max_hp", 1)):
+        return "defeated"
+    return "active"
+
+
+async def _raid_to_out(doc: dict, user: Optional[dict] = None) -> RaidOut:
+    pk = await db.pokemon.find_one({"id": doc["pokemon_id"]}, {"_id": 0}) or {}
+    now = now_utc()
+    status = _raid_status(now, doc)
+    participants = list(doc.get("participants", []))
+    is_participant = bool(user and user["id"] in participants)
+    can_engage = False
+    if user and status == "active":
+        if doc.get("group_code") and (user.get("group_name") or "").upper() != doc["group_code"].upper():
+            can_engage = False
+        else:
+            # Distance check uses last camper position if available
+            if doc.get("latitude") is None or doc.get("longitude") is None:
+                can_engage = True  # location-less raids are always engageable
+            else:
+                pos = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
+                if pos:
+                    dlat = (pos["latitude"] - doc["latitude"]) * 111_111.0
+                    dlng = (pos["longitude"] - doc["longitude"]) * 111_111.0 * math.cos(math.radians(doc["latitude"]))
+                    dist = (dlat * dlat + dlng * dlng) ** 0.5
+                    can_engage = dist <= RAID_ENGAGE_RADIUS_M
+                else:
+                    can_engage = False
+    return RaidOut(
+        id=doc["id"],
+        pokemon_id=doc["pokemon_id"],
+        pokemon_name=pk.get("name", "?"),
+        pokemon_image_data_url=pk.get("image_data_url", ""),
+        rarity=pk.get("rarity", "rare"),
+        group_code=doc.get("group_code"),
+        label=doc.get("label"),
+        start_at=datetime.fromisoformat(doc["start_at"]),
+        end_at=datetime.fromisoformat(doc["end_at"]),
+        latitude=doc.get("latitude"),
+        longitude=doc.get("longitude"),
+        max_hp=int(doc.get("max_hp", 1)),
+        damage_dealt=int(doc.get("damage_dealt", 0)),
+        participants=participants,
+        status=status,
+        can_engage=can_engage,
+        is_participant=is_participant,
+    )
+
+
+@api.get("/raids/active", response_model=List[RaidOut])
+async def list_active_raids(user=Depends(get_current_user)):
+    now_iso = now_utc().isoformat()
+    group_code = (user.get("group_name") or "").upper()
+    q = {
+        "start_at": {"$lte": now_iso},
+        "end_at": {"$gte": now_iso},
+        "status": {"$ne": "defeated"},
+        "$or": [{"group_code": None}, {"group_code": group_code}],
+    }
+    out = []
+    async for r in db.raids.find(q, {"_id": 0}).sort("start_at", 1):
+        out.append(await _raid_to_out(r, user))
+    return out
+
+
+@api.get("/raids/{raid_id}", response_model=RaidOut)
+async def get_raid(raid_id: str, user=Depends(get_current_user)):
+    doc = await db.raids.find_one({"id": raid_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Raid not found")
+    return await _raid_to_out(doc, user)
+
+
+class RaidThrowResult(BaseModel):
+    ok: bool
+    damage_dealt: int
+    max_hp: int
+    defeated: bool
+    pokemon: Optional[PokemonOut] = None
+    power_rolled: Optional[int] = None
+    message: str = ""
+    balances: dict = Field(default_factory=dict)
+
+
+@api.post("/raids/{raid_id}/throw", response_model=RaidThrowResult)
+async def raid_throw(raid_id: str, ball_type: Optional[str] = "pokeball", user=Depends(get_current_user)):
+    """Camper deals 1 damage per throw to the shared raid HP. When HP hits 0
+    every participant is awarded the catch (synthetic catches inserted)."""
+    doc = await db.raids.find_one({"id": raid_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Raid not found")
+    out = await _raid_to_out(doc, user)
+    if out.status != "active":
+        raise HTTPException(400, f"This raid is {out.status}")
+    if not out.can_engage:
+        raise HTTPException(400, "You're too far from the raid pin to engage")
+    # Charge a ball
+    ball = (ball_type or "pokeball").lower()
+    if ball not in BALL_CATCH_MULT:
+        ball = "pokeball"
+    wallet = await get_or_init_wallet(user["id"])
+    if int((wallet.get("balances") or {}).get(ball, 0)) < 1:
+        raise HTTPException(400, f"You're out of {ball}s")
+    wallet = await adjust_ball(user["id"], ball, -1, "raid_throw", {"raid_id": raid_id})
+    # Apply damage. Lunchball / myrtleball deal more damage per throw.
+    dmg = 1 if ball == "pokeball" else (2 if ball in ("rayball", "myrtleball") else 3)
+    res = await db.raids.find_one_and_update(
+        {"id": raid_id, "status": {"$ne": "defeated"}},
+        {"$inc": {"damage_dealt": dmg}, "$addToSet": {"participants": user["id"]}, "$set": {"updated_at": now_utc().isoformat()}},
+        return_document=True,
+    )
+    if not res:
+        raise HTTPException(409, "Raid already defeated")
+    res.pop("_id", None)
+    new_dmg = int(res.get("damage_dealt", 0))
+    max_hp = int(res.get("max_hp", 1))
+    pk = await db.pokemon.find_one({"id": res["pokemon_id"]}, {"_id": 0})
+    if new_dmg >= max_hp and res.get("status") != "defeated":
+        # Mark defeated and grant ALL participants the catch
+        await db.raids.update_one({"id": raid_id}, {"$set": {"status": "defeated", "defeated_at": now_utc().isoformat()}})
+        for cid in res.get("participants", []):
+            cu = await db.users.find_one({"id": cid}, {"_id": 0})
+            if not cu:
+                continue
+            base_pl = int(pk.get("power_level", 200))
+            evolved_pl = max(1, min(1000, int(base_pl * random.uniform(0.95, 1.0))))
+            catch_doc = {
+                "id": str(uuid.uuid4()),
+                "group_id": cid,
+                "group_name": cu.get("group_name", ""),
+                "caught_by": cu.get("username", "Camper"),
+                "pokemon_id": pk["id"],
+                "pokemon_name": pk.get("name", ""),
+                "pokemon_image": pk.get("image_data_url", ""),
+                "pokemon_description": pk.get("description", ""),
+                "pokemon_type": pk.get("type", "normal"),
+                "rarity": pk.get("rarity", "rare"),
+                "ball_type": "raid",
+                "power_rolled": evolved_pl,
+                "is_shiny": False,
+                "is_raid": True,
+                "raid_id": raid_id,
+                "caught_at": now_utc().isoformat(),
+            }
+            await db.catches.insert_one(catch_doc)
+            await db.camper_pokemon_candies.update_one(
+                {"camper_id": cid, "pokemon_id": pk["id"]},
+                {"$inc": {"candies": 3}, "$set": {"updated_at": now_utc().isoformat()}},
+                upsert=True,
+            )
+        return RaidThrowResult(
+            ok=True,
+            damage_dealt=new_dmg,
+            max_hp=max_hp,
+            defeated=True,
+            pokemon=pokemon_to_out(pk) if pk else None,
+            power_rolled=evolved_pl,
+            message="🎉 RAID DEFEATED! Everyone caught the Pokémon.",
+            balances=wallet.get("balances") or {},
+        )
+    return RaidThrowResult(
+        ok=True,
+        damage_dealt=new_dmg,
+        max_hp=max_hp,
+        defeated=False,
+        message=f"-{dmg} HP",
+        balances=wallet.get("balances") or {},
+    )
+
+
+@api.get("/admin/raids", response_model=List[RaidOut])
+async def admin_list_raids(admin=Depends(get_current_admin)):
+    out = []
+    async for r in db.raids.find({}, {"_id": 0}).sort("start_at", -1):
+        out.append(await _raid_to_out(r, None))
+    return out
+
+
+@api.post("/admin/raids", response_model=RaidOut)
+async def admin_create_raid(req: RaidScheduleReq, admin=Depends(get_current_admin)):
+    pk = await db.pokemon.find_one({"id": req.pokemon_id}, {"_id": 0})
+    if not pk:
+        raise HTTPException(404, "Pokémon not found")
+    if req.duration_minutes <= 0 or req.duration_minutes > 120:
+        raise HTTPException(400, "duration_minutes must be 1..120")
+    rarity = pk.get("rarity", "rare")
+    max_hp = RAID_HP_BY_RARITY.get(rarity, 30)
+    end_at = req.start_at + timedelta(minutes=req.duration_minutes)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "pokemon_id": req.pokemon_id,
+        "group_code": (req.group_code or "").upper() or None,
+        "label": req.label,
+        "start_at": req.start_at.isoformat(),
+        "end_at": end_at.isoformat(),
+        "latitude": req.latitude,
+        "longitude": req.longitude,
+        "max_hp": max_hp,
+        "damage_dealt": 0,
+        "participants": [],
+        "status": "scheduled",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.raids.insert_one(doc)
+    return await _raid_to_out(doc, None)
+
+
+@api.post("/admin/raids/{raid_id}/end")
+async def admin_force_end_raid(raid_id: str, admin=Depends(get_current_admin)):
+    res = await db.raids.update_one({"id": raid_id}, {"$set": {"status": "expired", "end_at": now_utc().isoformat()}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Raid not found")
+    return {"ok": True}
+
+
+@api.delete("/admin/raids/{raid_id}")
+async def admin_delete_raid(raid_id: str, admin=Depends(get_current_admin)):
+    res = await db.raids.delete_one({"id": raid_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Raid not found")
+    return {"ok": True}
 
 
 

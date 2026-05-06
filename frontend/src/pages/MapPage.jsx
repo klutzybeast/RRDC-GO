@@ -20,6 +20,8 @@ import Minimap from "../components/Minimap";
 import RustlingGrass from "../components/RustlingGrass";
 import ActiveEventBanner from "../components/ActiveEventBanner";
 import BuddyStrip from "../components/BuddyStrip";
+import GroupCampersOverlay from "../components/GroupCampersOverlay";
+import RaidsOverlay from "../components/RaidsOverlay";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -499,6 +501,10 @@ export default function MapPage() {
                             />
                         );
                     })}
+                    {/* Same-group peer campers (kid-safe: first-name only, admin-gated) */}
+                    <GroupCampersOverlay />
+                    {/* Active raids on this map (kid-safe scoping handled server-side) */}
+                    <RaidsOverlay onPick={(r) => nav(`/raid/${r.id}`)} />
 
                     {rankedSpawns.map((s) => {
                         if (s.latitude == null || s.longitude == null) return null;
