@@ -10,6 +10,7 @@ import RiverBall from "../components/RiverBall";
 import CampBall from "../components/CampBall";
 import BallSwitcher from "../components/BallSwitcher";
 import BallWobbleSequence from "../components/BallWobbleSequence";
+import ThrowRings from "../components/ThrowRings";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
@@ -88,6 +89,9 @@ export default function ARPage() {
     const [showBallAnim, setShowBallAnim] = useState(false);
     const [wobble, setWobble] = useState(null); // { stages, success, ballId, pendingResult }
     const [flash, setFlash] = useState("");
+    const [throwBanner, setThrowBanner] = useState(null); // { quality, curveball }
+    const ringRef = useRef(null);
+    const touchPathRef = useRef([]); // {x,y,t}
     const [ambient, setAmbient] = useState(null);
     const [selectedBall, setSelectedBall] = useState("pokeball");
     const pollRef = useRef(null);
@@ -220,12 +224,53 @@ export default function ARPage() {
             setShowOutOfBalls(true);
             return;
         }
+        // Sample throw quality from the rings (frame-accurate at the moment of release)
+        const quality = ringRef.current ? ringRef.current.sample() : null;
+        // Detect curveball from the captured touch path: if total path is at
+        // least 1.3x the straight-line distance AND has > 2 direction changes,
+        // it's a curveball. Tap-throws (no path) → false.
+        const path = touchPathRef.current;
+        let curveball = false;
+        if (path.length >= 4) {
+            let total = 0;
+            for (let i = 1; i < path.length; i++) {
+                total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+            }
+            const straight = Math.hypot(
+                path[path.length - 1].x - path[0].x,
+                path[path.length - 1].y - path[0].y
+            );
+            const ratio = straight > 8 ? total / straight : 1;
+            // Direction changes
+            let dirChanges = 0;
+            for (let i = 2; i < path.length; i++) {
+                const ax = path[i - 1].x - path[i - 2].x;
+                const ay = path[i - 1].y - path[i - 2].y;
+                const bx = path[i].x - path[i - 1].x;
+                const by = path[i].y - path[i - 1].y;
+                const cross = ax * by - ay * bx;
+                if (Math.abs(cross) > 60) dirChanges++;
+            }
+            curveball = ratio > 1.3 && dirChanges >= 2;
+        }
+        touchPathRef.current = [];
+
+        // Show banner immediately so kid feels rewarded for the skill shot
+        if (quality || curveball) {
+            setThrowBanner({ quality, curveball });
+            setTimeout(() => setThrowBanner(null), 1100);
+        }
         setThrowing(true);
         setShowBallAnim(true);
         // Match the ball-flight duration in the SVG below (~0.85s)
         await new Promise((r) => setTimeout(r, 850));
         try {
-            const res = await userApi.post("/spawn/catch", { spawn_id: spawn.spawn_id, ball_type: ball });
+            const res = await userApi.post("/spawn/catch", {
+                spawn_id: spawn.spawn_id,
+                ball_type: ball,
+                throw_quality: quality,
+                curveball,
+            });
             refreshWallet();
             // Always show the 1-2-3 wobble sequence — backend tells us how it ends.
             const stages = Array.isArray(res.data.wobble_stages) && res.data.wobble_stages.length === 3
@@ -336,6 +381,7 @@ export default function ARPage() {
             )}
 
             {spawn && !wobble && <PokemonOverlay imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
+            {spawn && !wobble && !showBallAnim && <ThrowRings ref={ringRef} active size={240} />}
 
             {/* UI overlay */}
             <div className="ar-ui">
@@ -415,6 +461,18 @@ export default function ARPage() {
                                 onDragEnd={onDragEnd}
                                 whileTap={{ scale: 0.92 }}
                                 onClick={() => !throwing && throwBall()}
+                                onTouchStart={(e) => {
+                                    touchPathRef.current = [];
+                                    const t = e.touches[0];
+                                    if (t) touchPathRef.current.push({ x: t.clientX, y: t.clientY, t: performance.now() });
+                                }}
+                                onTouchMove={(e) => {
+                                    const t = e.touches[0];
+                                    if (!t) return;
+                                    touchPathRef.current.push({ x: t.clientX, y: t.clientY, t: performance.now() });
+                                    // Cap path length to last 30 samples
+                                    if (touchPathRef.current.length > 30) touchPathRef.current.shift();
+                                }}
                                 style={{ y: ballY }}
                                 data-testid="river-ball"
                             >
@@ -448,6 +506,44 @@ export default function ARPage() {
                             transition={{ duration: 0.85, ease: [0.45, 0.05, 0.55, 0.95], times: [0, 0.35, 0.7, 1] }}
                         >
                             <CampBall ballId={selectedBall} size={96} animate={false} />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                    {throwBanner && (
+                        <motion.div
+                            className="absolute inset-0 flex items-center justify-center pointer-events-none z-[80]"
+                            initial={{ opacity: 0, scale: 0.6 }}
+                            animate={{ opacity: 1, scale: 1.05 }}
+                            exit={{ opacity: 0, scale: 1.4 }}
+                            transition={{ type: "spring", stiffness: 280, damping: 18 }}
+                            data-testid="throw-banner"
+                        >
+                            <div className="flex flex-col items-center gap-1">
+                                {throwBanner.quality && (
+                                    <div
+                                        className={`font-heading text-5xl font-black drop-shadow-2xl tracking-widest ${
+                                            throwBanner.quality === "excellent" ? "text-yellow-300" :
+                                            throwBanner.quality === "great" ? "text-blue-300" :
+                                            "text-white"
+                                        }`}
+                                        data-testid={`throw-${throwBanner.quality}`}
+                                        style={{ textShadow: "0 2px 14px rgba(0,0,0,0.85)" }}
+                                    >
+                                        {throwBanner.quality.toUpperCase()}!
+                                    </div>
+                                )}
+                                {throwBanner.curveball && (
+                                    <div
+                                        className="font-heading text-3xl font-black text-fuchsia-300 drop-shadow-2xl tracking-widest"
+                                        data-testid="throw-curveball"
+                                        style={{ textShadow: "0 2px 14px rgba(0,0,0,0.85)" }}
+                                    >
+                                        CURVEBALL!
+                                    </div>
+                                )}
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>

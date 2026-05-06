@@ -16,6 +16,8 @@ import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustom
 import SupervisorChallenge from "../components/SupervisorChallenge";
 import ChallengesCard from "../components/ChallengesCard";
 import NearbyPanel from "../components/NearbyPanel";
+import Minimap from "../components/Minimap";
+import RustlingGrass from "../components/RustlingGrass";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -120,6 +122,14 @@ export default function MapPage() {
             document.removeEventListener("visibilitychange", onVis);
         };
     }, [refreshStreak]);
+
+    // Periodic re-render so per-marker spawn-age transitions (rustling → reveal)
+    // happen smoothly without waiting for the 4s poll.
+    const [, _setTick] = useState(0);
+    useEffect(() => {
+        const t = setInterval(() => _setTick((n) => (n + 1) % 1000), 1500);
+        return () => clearInterval(t);
+    }, []);
 
     // Auto-claim daily bonus on mount
     useEffect(() => {
@@ -455,6 +465,11 @@ export default function MapPage() {
                         const dist = s._distance_m;
                         const inRange = dist != null && dist <= catchRadius;
                         const glow = rarityGlow[s.pokemon.rarity] || rarityGlow.common;
+                        // Rustling-grass for the first 10s of a spawn's life — hints at
+                        // an arrival before the Pokemon "pops in" with appear animation.
+                        const startedAt = s.started_at ? new Date(s.started_at).getTime() : 0;
+                        const ageMs = startedAt ? Date.now() - startedAt : 999999;
+                        const isRustling = ageMs >= 0 && ageMs < 10000;
                         // Pokemon-GO style: scale down faraway markers, pulse the close ones.
                         let scale = 1.0;
                         let opacity = 1.0;
@@ -496,6 +511,12 @@ export default function MapPage() {
                                     transition={{ type: "spring", stiffness: 120, damping: 18 }}
                                     data-testid="spawn-marker"
                                 >
+                                    {isRustling ? (
+                                        <div className="relative w-24 h-24">
+                                            <RustlingGrass size={92} />
+                                        </div>
+                                    ) : (
+                                    <>
                                     {/* Rarity pulse ring — sits beneath the bob animation */}
                                     <motion.div
                                         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
@@ -543,12 +564,17 @@ export default function MapPage() {
                                             {Math.round(dist)} m
                                         </div>
                                     )}
+                                    </>
+                                    )}
                                 </motion.div>
                             </OverlayView>
                         );
                     })}
                 </GoogleMap>
             )}
+
+            {/* Minimap radar — top right (top: 60px) so it sits below the menu */}
+            <Minimap myLocation={myLocation} spawns={rankedSpawns} bearing={bearing} range={200} />
 
             {/* Zoom controls (Pokemon GO style stack) */}
             <div className="absolute bottom-48 right-4 z-10 flex flex-col gap-2">

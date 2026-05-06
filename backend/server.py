@@ -234,6 +234,11 @@ class SpawnPollResponse(BaseModel):
 class CatchAttemptReq(BaseModel):
     spawn_id: str
     ball_type: Optional[str] = "pokeball"
+    # Pokemon-GO style throw quality. Optional — frontend reports it; backend
+    # multiplies retention. nice=1.1x, great=1.3x, excellent=1.5x. Curveball
+    # adds an additional 1.7x mult on top.
+    throw_quality: Optional[Literal["nice", "great", "excellent"]] = None
+    curveball: bool = False
 
 
 class CatchResult(BaseModel):
@@ -1399,11 +1404,17 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
                 pokemon["type"] = full.get("type")
     rarity = pokemon.get("rarity", "common")
     ball_mult = float(BALL_CATCH_MULT.get(ball_type, 1.0))
+    # Throw quality + curveball — kid skill multipliers stacked on the ball mult.
+    QUALITY_MULT = {"nice": 1.1, "great": 1.3, "excellent": 1.5}
+    quality = (req.throw_quality or "").lower() if req.throw_quality else None
+    qmult = QUALITY_MULT.get(quality, 1.0) if quality else 1.0
+    cmult = 1.7 if bool(getattr(req, "curveball", False)) else 1.0
+    effective_mult = ball_mult * qmult * cmult
     # Pokemon-GO style 3-stage wobble. Each stage is an independent retention
     # roll; the Pokemon breaks out at the first failed stage. Ball multiplier
-    # raises per-stage retention: stage_new = stage_old ** (1/ball_mult).
+    # raises per-stage retention: stage_new = stage_old ** (1/effective_mult).
     base_stages = WOBBLE_RETENTION.get(rarity, WOBBLE_RETENTION["common"])
-    stage_keep = [min(0.99, max(0.01, s ** (1.0 / max(ball_mult, 0.01)))) for s in base_stages]
+    stage_keep = [min(0.99, max(0.01, s ** (1.0 / max(effective_mult, 0.01)))) for s in base_stages]
     wobble_stages = [False, False, False]
     success = True
     for i, keep in enumerate(stage_keep):
