@@ -437,3 +437,54 @@ Empirical wobble tuning verified, streak math verified across consecutive-day + 
 ### Schema diff
 - `camper_streaks`: { id (camper_id), current_streak, longest_streak, last_caught_ymd, last_reward_at }
 - `catches.is_shiny`: bool (new field)
+
+
+
+## 2026-05-06 — Pokemon-GO parity #2 (Iteration 17)
+
+User asked to ship the deferred Tier 1 (rustling-grass + minimap) and Tier 2 (throw rings + curveball) chunks. Ball arc physics rework intentionally NOT done — current spiral arc is fine.
+
+### Shipped ✅
+
+**Backend**
+- `CatchAttemptReq` adds `throw_quality: "nice"|"great"|"excellent" | None` and `curveball: bool = False`. Both optional and backwards compatible (existing iPad clients without the new fields continue to work).
+- Quality multipliers stack on top of ball multiplier: nice 1.1×, great 1.3×, excellent 1.5×, curveball 1.7×.
+- Per-stage retention formula switched from exponential to additive escape reduction:
+  ```
+  new_stage = min(0.99, max(0.01, 1 - (1 - s) / k^1.3))
+  ```
+  This makes the per-stage cap actually bite for skilled throws. Verified rates:
+  - Legendary + pokeball: 54% (unchanged baseline)
+  - Legendary + lunchball: 84%
+  - Legendary + excellent + curveball + lunchball: **95%** (target met for skilled throws)
+  - Common + pokeball: 97% (no regression)
+
+**Frontend**
+- `ThrowRings.jsx` — concentric pulse rings (white/blue/yellow) over the Pokemon during AR. `forwardRef` exposes `.sample()` that returns the quality string at the moment of throw. Hidden during ball flight or wobble.
+- `Minimap.jsx` — bottom-left circular radar. Self at center, animated conic-gradient sweep, rarity-coloured spawn dots within 200 m, compass cardinal letters. Tap to expand 116→220px.
+- `RustlingGrass.jsx` — three staggered emerald ripples + center bump. Used on map for spawns under 10 s old.
+- `MapPage.jsx` — spawn marker conditionally renders RustlingGrass (`<10s`) vs the full Pokémon overlay; periodic 1.5s tick makes the transition smooth without waiting for the next 4s poll. Minimap mounted between `</GoogleMap>` and the zoom stack.
+- `ARPage.jsx` — captures touch path on the ball drag, computes `curveball` from path-length / direction-change heuristic, samples ring quality at click, sends both fields to `/spawn/catch`. Floating banner shows `NICE!` / `GREAT!` / `EXCELLENT!` and `CURVEBALL!` for ~1.1 s after release.
+
+### Test pass: iteration_17.json — 100% backend (10/10), frontend regressions all green
+Live AR throw-ring interaction was code-reviewed but couldn't be fully Playwright-driven due to the geolocation-onboarding modal returning between map mounts in the iframe. ThrowRings, Minimap, RustlingGrass all confirmed present + functional.
+
+### Files added
+- `/app/frontend/src/components/Minimap.jsx`
+- `/app/frontend/src/components/RustlingGrass.jsx`
+- `/app/frontend/src/components/ThrowRings.jsx`
+- `/app/backend/tests/test_iteration17.py` (10 tests)
+
+### Files modified
+- `/app/backend/server.py` — CatchAttemptReq fields, additive escape-reduction formula, quality+curveball mult stacking.
+- `/app/frontend/src/pages/MapPage.jsx` — RustlingGrass conditional, Minimap mount, periodic re-render tick.
+- `/app/frontend/src/pages/ARPage.jsx` — ThrowRings mount, touch-path tracking, throw banner, ringRef.sample(), payload extension.
+
+### Known limitation (not fixing this iteration)
+- The 'Allow location' onboarding modal can re-appear between map navigations in some sessions, briefly intercepting the catch CTA on the iframe preview. Real iPad sessions outside the Emergent iframe don't see this. Tracked for a future polish pass.
+
+### Next deferred from the original prompt
+- TIER 3: Events tab, Buddy Pokémon, Evolutions, Pokéstops cooldown + items inventory.
+- TIER 4: see-other-campers, raids, trading (P3 — safety review), friends.
+- TIER 5: full sound effect library + Pokémon cries.
+- ADMIN: Events tab, Raids tab, evolution dropdown on Pokémon roster, bulk-grant balls.

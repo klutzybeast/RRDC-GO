@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
- * Pokemon-GO style minimap / radar. Circular, sits in the top-right of the
+ * Pokemon-GO style minimap / radar. Circular, sits at the bottom-left of the
  * map. Self at center, spawns rendered as colored silhouettes within a 200m
  * radius. Tap to expand; tap again to collapse.
  */

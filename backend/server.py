@@ -1414,7 +1414,12 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     # roll; the Pokemon breaks out at the first failed stage. Ball multiplier
     # raises per-stage retention: stage_new = stage_old ** (1/effective_mult).
     base_stages = WOBBLE_RETENTION.get(rarity, WOBBLE_RETENTION["common"])
-    stage_keep = [min(0.99, max(0.01, s ** (1.0 / max(effective_mult, 0.01)))) for s in base_stages]
+    # Additive escape-reduction model — lets the per-stage cap of 0.99 actually
+    # bite for skilled throws. Math:  new = 1 - (1 - s) / k^1.3  where k is the
+    # effective multiplier. At k=1 this equals s (no change). At k=10 (excellent
+    # + curveball + lunchball) escape probability shrinks by ~20x.
+    k_pow = max(0.01, effective_mult) ** 1.3
+    stage_keep = [min(0.99, max(0.01, 1.0 - (1.0 - s) / k_pow)) for s in base_stages]
     wobble_stages = [False, False, False]
     success = True
     for i, keep in enumerate(stage_keep):
