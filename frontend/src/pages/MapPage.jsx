@@ -731,7 +731,7 @@ export default function MapPage() {
             </div>
 
             {/* Supervisor challenge banner + Daily challenges + Nearby */}
-            <div className="absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto pointer-events-auto space-y-2">
+            <div className={`absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto space-y-2 ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-auto"}`} aria-hidden={showOnboarding}>
                 <ActiveEventBanner />
                 <SupervisorChallenge compact />
                 <div className="flex justify-end gap-2 flex-wrap">
