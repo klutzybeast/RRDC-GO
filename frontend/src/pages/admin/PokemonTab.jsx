@@ -26,6 +26,41 @@ export default function PokemonTab() {
     const [bulkOpen, setBulkOpen] = useState(false);
     // Each item: { file, name, rarity, description, preview }
     const [bulkItems, setBulkItems] = useState([]);
+
+    // Persist staged-item metadata (names/rarities/types/descriptions) to
+    // sessionStorage so iOS Safari tab eviction doesn't lose hours of typing.
+    // We keep file metadata only — the actual File handles are re-attached
+    // when the user re-picks images by matching filename. If no match, the
+    // row stays as a "needs re-pick" entry the user can delete.
+    const BULK_STORAGE_KEY = "rrdc_admin_bulk_pokemon_v1";
+    useEffect(() => {
+        try {
+            const raw = sessionStorage.getItem(BULK_STORAGE_KEY);
+            if (raw) {
+                const meta = JSON.parse(raw);
+                if (Array.isArray(meta) && meta.length) {
+                    setBulkItems(meta.map((m) => ({ ...m, file: null, preview: null, needsReupload: true })));
+                    setBulkOpen(true);
+                }
+            }
+        } catch { /* sessionStorage disabled */ }
+    }, []);
+    useEffect(() => {
+        try {
+            if (!bulkItems.length) {
+                sessionStorage.removeItem(BULK_STORAGE_KEY);
+                return;
+            }
+            const meta = bulkItems.map((it) => ({
+                fileName: it.file?.name || it.fileName || "",
+                name: it.name || "",
+                rarity: it.rarity || "common",
+                type: it.type || "normal",
+                description: it.description || "",
+            }));
+            sessionStorage.setItem(BULK_STORAGE_KEY, JSON.stringify(meta));
+        } catch { /* sessionStorage disabled */ }
+    }, [bulkItems]);
     const [bulkActive, setBulkActive] = useState(true);
     const [bulkFeatured, setBulkFeatured] = useState(true);
     const [bulkRunning, setBulkRunning] = useState(false);
@@ -96,18 +131,35 @@ export default function PokemonTab() {
 
     const onBulkFilesPicked = (e) => {
         const files = Array.from(e.target.files || []);
-        const items = files.map((f) => {
-            const baseName = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-            return {
-                file: f,
-                name: baseName.slice(0, 60),
-                rarity: "common",
-                type: "normal",
-                description: "",
-                preview: URL.createObjectURL(f),
-            };
+        if (files.length === 0) return;
+        setBulkItems((existing) => {
+            const next = [...existing];
+            files.forEach((f) => {
+                // Try to match an existing row that needs re-attach (by filename).
+                const idx = next.findIndex((it) => it.needsReupload && it.fileName === f.name);
+                if (idx >= 0) {
+                    next[idx] = {
+                        ...next[idx],
+                        file: f,
+                        preview: URL.createObjectURL(f),
+                        needsReupload: false,
+                    };
+                    return;
+                }
+                const baseName = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+                next.push({
+                    file: f,
+                    fileName: f.name,
+                    name: baseName.slice(0, 60),
+                    rarity: "common",
+                    type: "normal",
+                    description: "",
+                    preview: URL.createObjectURL(f),
+                });
+            });
+            return next;
         });
-        setBulkItems(items);
+        if (bulkFileRef.current) bulkFileRef.current.value = "";
     };
 
     const updateBulkItem = (i, patch) => {
@@ -130,6 +182,11 @@ export default function PokemonTab() {
         if (!bulkItems.length) { toast.error("Pick at least one image"); return; }
         const blanks = bulkItems.filter((it) => !it.name?.trim());
         if (blanks.length) { toast.error(`${blanks.length} item(s) need a name`); return; }
+        const orphans = bulkItems.filter((it) => !it.file);
+        if (orphans.length) {
+            toast.error(`${orphans.length} item(s) lost their image (page was reloaded). Tap "Add images" and re-pick to attach them.`);
+            return;
+        }
         setBulkRunning(true);
         setBulkResult(null);
         try {
@@ -152,6 +209,7 @@ export default function PokemonTab() {
             // Free the preview URLs and clear the staging list on success
             bulkItems.forEach((it) => it.preview && URL.revokeObjectURL(it.preview));
             setBulkItems([]);
+            try { sessionStorage.removeItem(BULK_STORAGE_KEY); } catch { /* noop */ }
             if (bulkFileRef.current) bulkFileRef.current.value = "";
             load();
         } catch (e) { toast.error(formatApiError(e)); }
@@ -472,15 +530,21 @@ export default function PokemonTab() {
                                 {bulkItems.map((it, i) => (
                                     <div
                                         key={i}
-                                        className="rounded-2xl bg-slate-50 border border-slate-200 p-3 flex gap-3 items-start"
+                                        className={`rounded-2xl border p-3 flex gap-3 items-start ${it.needsReupload ? "bg-amber-50 border-amber-300" : "bg-slate-50 border-slate-200"}`}
                                         data-testid={`bulk-item-${i}`}
                                     >
-                                        <img
-                                            src={it.preview}
-                                            alt={it.name}
-                                            className="w-16 h-16 rounded-xl object-cover bg-white border border-slate-200 shrink-0"
-                                            draggable={false}
-                                        />
+                                        {it.preview ? (
+                                            <img
+                                                src={it.preview}
+                                                alt={it.name}
+                                                className="w-16 h-16 rounded-xl object-cover bg-white border border-slate-200 shrink-0"
+                                                draggable={false}
+                                            />
+                                        ) : (
+                                            <div className="w-16 h-16 rounded-xl bg-amber-100 border border-amber-300 shrink-0 flex flex-col items-center justify-center text-amber-700 text-[9px] font-bold uppercase tracking-widest leading-tight text-center px-1" title={`Re-pick ${it.fileName} to attach the image`}>
+                                                Re-pick<br/>image
+                                            </div>
+                                        )}
                                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2">
                                             <div className="sm:col-span-2">
                                                 <Label className="text-[10px] uppercase tracking-widest text-slate-500">Name</Label>

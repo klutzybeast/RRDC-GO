@@ -171,6 +171,14 @@ class SpawnConfig(BaseModel):
     scheduled_windows: list = Field(default_factory=list)
     # When True, campers can see same-group teammates (anonymized first-name + position) on the map.
     show_group_positions: bool = True
+    # Trading + daily-gift master toggle. Disable if you want to suspend
+    # all trades + gifts (existing pending trades remain visible but can't
+    # be confirmed; gifts can still be opened).
+    social_enabled: bool = True
+    # Distance in meters within which two campers must stand to confirm a trade.
+    trade_proximity_m: float = 30.0
+    # Maximum trades any one camper can complete in a calendar day.
+    trade_daily_cap: int = 3
 
 
 class CamperOut(BaseModel):
@@ -3481,6 +3489,456 @@ async def admin_force_end_raid(raid_id: str, admin=Depends(get_current_admin)):
     if res.matched_count == 0:
         raise HTTPException(404, "Raid not found")
     return {"ok": True}
+
+
+# ===========================================================
+# TIER 5/6 — Friends, Daily Gifts, Trading (kid-safe spec)
+# Decisions ratified with director:
+#   1b  Same-group only auto-connect — no friend codes, no roster browse.
+#   2d  Friends list + Trade + Daily gift (no chat ever).
+#   3c  Trade requires both campers within trade_proximity_m of each other.
+#   4d  Master toggle + audit log + 24h revert.
+#   5b  No in-app report button — supervisors handle in person.
+# ===========================================================
+
+class FriendOut(BaseModel):
+    camper_id: str
+    first_name: str
+    group_code: str
+    last_seen_at: Optional[datetime] = None
+    catches_count: int = 0
+    can_send_gift: bool = True  # false if today's gift already sent
+
+
+class DailyGiftOut(BaseModel):
+    id: str
+    from_camper_id: str
+    from_first_name: str
+    sent_at: datetime
+    opened: bool
+    pokeballs: int = 0
+
+
+@api.get("/friends", response_model=List[FriendOut])
+async def list_friends(user=Depends(get_current_user)):
+    cfg = await load_spawn_config()
+    if not cfg.get("social_enabled", True):
+        return []
+    group_code = (user.get("group_name") or "").upper()
+    if not group_code:
+        return []
+    today_ymd = _local_ymd(now_utc())
+    # Same-group peers, excluding self
+    out = []
+    async for c in db.campers.find(
+        {"group_code": group_code, "id": {"$ne": user["id"]}},
+        {"_id": 0, "id": 1, "first_name": 1},
+    ):
+        # Last seen — most recent position update
+        pos = await db.camper_positions.find_one(
+            {"camper_id": c["id"]}, {"_id": 0, "updated_at": 1}
+        )
+        catches = await db.catches.count_documents({"group_id": c["id"]})
+        gift_today = await db.daily_gifts.find_one({
+            "from_camper_id": user["id"], "to_camper_id": c["id"], "sent_ymd": today_ymd,
+        })
+        out.append(FriendOut(
+            camper_id=c["id"],
+            first_name=c.get("first_name") or "Camper",
+            group_code=group_code,
+            last_seen_at=datetime.fromisoformat(pos["updated_at"]) if pos else None,
+            catches_count=catches,
+            can_send_gift=not gift_today,
+        ))
+    return out
+
+
+# --- Daily gifts ---
+
+class GiftReq(BaseModel):
+    to_camper_id: str
+
+
+GIFT_BALL_MIN, GIFT_BALL_MAX = 3, 6
+
+
+@api.post("/gifts/send")
+async def send_gift(req: GiftReq, user=Depends(get_current_user)):
+    cfg = await load_spawn_config()
+    if not cfg.get("social_enabled", True):
+        raise HTTPException(403, "Daily gifts are currently disabled")
+    if req.to_camper_id == user["id"]:
+        raise HTTPException(400, "You can't gift yourself")
+    target = await db.campers.find_one({"id": req.to_camper_id}, {"_id": 0, "id": 1, "group_code": 1, "first_name": 1})
+    if not target:
+        raise HTTPException(404, "Camper not found")
+    if (target.get("group_code") or "").upper() != (user.get("group_name") or "").upper():
+        raise HTTPException(403, "You can only gift same-group friends")
+    today_ymd = _local_ymd(now_utc())
+    existing = await db.daily_gifts.find_one({
+        "from_camper_id": user["id"], "to_camper_id": req.to_camper_id, "sent_ymd": today_ymd,
+    })
+    if existing:
+        raise HTTPException(429, f"You already sent {target.get('first_name', 'them')} a gift today — try again tomorrow!")
+    pokeballs = random.randint(GIFT_BALL_MIN, GIFT_BALL_MAX)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "from_camper_id": user["id"],
+        "from_first_name": user.get("group_name", "") and "",  # filled below
+        "to_camper_id": req.to_camper_id,
+        "pokeballs": pokeballs,
+        "sent_ymd": today_ymd,
+        "sent_at": now_utc().isoformat(),
+        "opened": False,
+    }
+    # Lookup sender's first_name for the receiver's notification
+    me = await db.campers.find_one({"id": user["id"]}, {"_id": 0, "first_name": 1})
+    doc["from_first_name"] = (me or {}).get("first_name") or "A friend"
+    await db.daily_gifts.insert_one(doc)
+    return {"ok": True, "to_first_name": target.get("first_name") or "Camper", "pokeballs": pokeballs}
+
+
+@api.get("/gifts/inbox", response_model=List[DailyGiftOut])
+async def gifts_inbox(user=Depends(get_current_user)):
+    cur = db.daily_gifts.find(
+        {"to_camper_id": user["id"]}, {"_id": 0}
+    ).sort("sent_at", -1).limit(20)
+    out = []
+    async for g in cur:
+        out.append(DailyGiftOut(
+            id=g["id"],
+            from_camper_id=g["from_camper_id"],
+            from_first_name=g.get("from_first_name") or "A friend",
+            sent_at=datetime.fromisoformat(g["sent_at"]),
+            opened=bool(g.get("opened", False)),
+            pokeballs=int(g.get("pokeballs", 0)),
+        ))
+    return out
+
+
+@api.post("/gifts/{gift_id}/open")
+async def open_gift(gift_id: str, user=Depends(get_current_user)):
+    g = await db.daily_gifts.find_one({"id": gift_id, "to_camper_id": user["id"]}, {"_id": 0})
+    if not g:
+        raise HTTPException(404, "Gift not found")
+    if g.get("opened"):
+        return {"ok": True, "already_opened": True, "pokeballs": int(g.get("pokeballs", 0))}
+    pokeballs = int(g.get("pokeballs", 0))
+    await adjust_ball(user["id"], "pokeball", pokeballs, "gift_opened", {"gift_id": gift_id, "from_camper_id": g["from_camper_id"]})
+    await db.daily_gifts.update_one({"id": gift_id}, {"$set": {"opened": True, "opened_at": now_utc().isoformat()}})
+    return {"ok": True, "already_opened": False, "pokeballs": pokeballs, "from_first_name": g.get("from_first_name", "A friend")}
+
+
+# --- Trading (1-for-1 same-rarity, same-group, proximity-gated) ---
+
+class TradeProposeReq(BaseModel):
+    to_camper_id: str
+    # Source pokemon_ids the proposer is OFFERING (1) and REQUESTING (1).
+    offer_pokemon_id: str
+    request_pokemon_id: str
+
+
+class TradeOut(BaseModel):
+    id: str
+    proposer_id: str
+    receiver_id: str
+    proposer_first_name: Optional[str] = None
+    receiver_first_name: Optional[str] = None
+    offer_pokemon_id: str
+    offer_pokemon_name: str
+    offer_pokemon_image_data_url: str = ""
+    offer_rarity: str
+    request_pokemon_id: str
+    request_pokemon_name: str
+    request_pokemon_image_data_url: str = ""
+    request_rarity: str
+    status: str  # proposed | accepted | rejected | reverted | expired
+    created_at: datetime
+    expires_at: datetime
+    completed_at: Optional[datetime] = None
+    # When status='accepted', the camper has 24h to revert.
+    revert_until: Optional[datetime] = None
+
+
+TRADE_TTL_HOURS = 24
+TRADE_REVERT_HOURS = 24
+
+
+async def _trade_to_out(doc: dict) -> TradeOut:
+    op = await db.pokemon.find_one({"id": doc["offer_pokemon_id"]}, {"_id": 0}) or {}
+    rp = await db.pokemon.find_one({"id": doc["request_pokemon_id"]}, {"_id": 0}) or {}
+    pmer = await db.campers.find_one({"id": doc["proposer_id"]}, {"_id": 0, "first_name": 1})
+    recv = await db.campers.find_one({"id": doc["receiver_id"]}, {"_id": 0, "first_name": 1})
+    return TradeOut(
+        id=doc["id"],
+        proposer_id=doc["proposer_id"],
+        receiver_id=doc["receiver_id"],
+        proposer_first_name=(pmer or {}).get("first_name"),
+        receiver_first_name=(recv or {}).get("first_name"),
+        offer_pokemon_id=doc["offer_pokemon_id"],
+        offer_pokemon_name=op.get("name", "?"),
+        offer_pokemon_image_data_url=op.get("image_data_url", "") or "",
+        offer_rarity=op.get("rarity", "common"),
+        request_pokemon_id=doc["request_pokemon_id"],
+        request_pokemon_name=rp.get("name", "?"),
+        request_pokemon_image_data_url=rp.get("image_data_url", "") or "",
+        request_rarity=rp.get("rarity", "common"),
+        status=doc["status"],
+        created_at=datetime.fromisoformat(doc["created_at"]),
+        expires_at=datetime.fromisoformat(doc["expires_at"]),
+        completed_at=datetime.fromisoformat(doc["completed_at"]) if doc.get("completed_at") else None,
+        revert_until=datetime.fromisoformat(doc["revert_until"]) if doc.get("revert_until") else None,
+    )
+
+
+async def _has_caught(camper_id: str, pokemon_id: str) -> bool:
+    return bool(await db.catches.find_one({"group_id": camper_id, "pokemon_id": pokemon_id}, {"_id": 0, "id": 1}))
+
+
+async def _delete_one_catch(camper_id: str, pokemon_id: str) -> bool:
+    """Remove ONE catch record of pokemon_id from camper. Returns True if a
+    catch was deleted. Used when a trade transfers a Pokémon out."""
+    c = await db.catches.find_one(
+        {"group_id": camper_id, "pokemon_id": pokemon_id}, {"_id": 0, "id": 1}, sort=[("caught_at", 1)]
+    )
+    if not c:
+        return False
+    res = await db.catches.delete_one({"id": c["id"]})
+    return res.deleted_count > 0
+
+
+async def _grant_traded_pokemon(camper_id: str, pokemon_id: str, source_camper_id: str) -> dict:
+    """Insert a synthetic catch for the receiving camper. Returns the catch doc."""
+    pk = await db.pokemon.find_one({"id": pokemon_id}, {"_id": 0}) or {}
+    me = await db.campers.find_one({"id": camper_id}, {"_id": 0, "first_name": 1, "last_name": 1, "group_code": 1})
+    first = (me or {}).get("first_name", "")
+    last = (me or {}).get("last_name", "")
+    catch = {
+        "id": str(uuid.uuid4()),
+        "group_id": camper_id,
+        "group_name": (me or {}).get("group_code", ""),
+        "caught_by": (first + " " + last).strip() or "Camper",
+        "pokemon_id": pokemon_id,
+        "pokemon_name": pk.get("name", ""),
+        "pokemon_image": pk.get("image_data_url", ""),
+        "pokemon_description": pk.get("description", ""),
+        "pokemon_type": pk.get("type", "normal"),
+        "rarity": pk.get("rarity", "common"),
+        "ball_type": "trade",
+        "power_rolled": int(pk.get("power_level", 100)),
+        "is_shiny": False,
+        "is_trade": True,
+        "traded_from_id": source_camper_id,
+        "caught_at": now_utc().isoformat(),
+    }
+    await db.catches.insert_one(catch)
+    return catch
+
+
+@api.post("/trades/propose", response_model=TradeOut)
+async def propose_trade(req: TradeProposeReq, user=Depends(get_current_user)):
+    cfg = await load_spawn_config()
+    if not cfg.get("social_enabled", True):
+        raise HTTPException(403, "Trading is currently disabled")
+    if req.to_camper_id == user["id"]:
+        raise HTTPException(400, "You can't trade with yourself")
+    # Same-group enforcement
+    target = await db.campers.find_one({"id": req.to_camper_id}, {"_id": 0, "id": 1, "group_code": 1})
+    if not target:
+        raise HTTPException(404, "Camper not found")
+    if (target.get("group_code") or "").upper() != (user.get("group_name") or "").upper():
+        raise HTTPException(403, "You can only trade with same-group friends")
+    # Both Pokémon must actually exist + the proposer owns the offer + receiver owns the request
+    op = await db.pokemon.find_one({"id": req.offer_pokemon_id}, {"_id": 0})
+    rp = await db.pokemon.find_one({"id": req.request_pokemon_id}, {"_id": 0})
+    if not op or not rp:
+        raise HTTPException(404, "Pokémon not found")
+    if op.get("rarity") != rp.get("rarity"):
+        raise HTTPException(400, "Trades must be SAME-RARITY (common ↔ common, legendary ↔ legendary)")
+    if not await _has_caught(user["id"], req.offer_pokemon_id):
+        raise HTTPException(400, "You don't have the Pokémon you're offering")
+    if not await _has_caught(req.to_camper_id, req.request_pokemon_id):
+        raise HTTPException(400, "Your friend doesn't have the Pokémon you're asking for")
+    # Daily cap on the proposer side (counts ACCEPTED trades only)
+    cap = int(cfg.get("trade_daily_cap", 3))
+    today_ymd = _local_ymd(now_utc())
+    completed_today = await db.trades.count_documents({
+        "$or": [{"proposer_id": user["id"]}, {"receiver_id": user["id"]}],
+        "status": "accepted",
+        "completed_ymd": today_ymd,
+    })
+    if completed_today >= cap:
+        raise HTTPException(429, f"You've hit today's trade limit ({cap}). Try again tomorrow!")
+    now = now_utc()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "proposer_id": user["id"],
+        "receiver_id": req.to_camper_id,
+        "offer_pokemon_id": req.offer_pokemon_id,
+        "request_pokemon_id": req.request_pokemon_id,
+        "status": "proposed",
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=TRADE_TTL_HOURS)).isoformat(),
+    }
+    await db.trades.insert_one(doc)
+    return await _trade_to_out(doc)
+
+
+async def _camper_distance_m(a_id: str, b_id: str) -> Optional[float]:
+    a = await db.camper_positions.find_one({"camper_id": a_id}, {"_id": 0})
+    b = await db.camper_positions.find_one({"camper_id": b_id}, {"_id": 0})
+    if not a or not b:
+        return None
+    cutoff = now_utc() - timedelta(minutes=10)
+    if datetime.fromisoformat(a["updated_at"]) < cutoff or datetime.fromisoformat(b["updated_at"]) < cutoff:
+        return None
+    dlat = (a["latitude"] - b["latitude"]) * 111_111.0
+    dlng = (a["longitude"] - b["longitude"]) * 111_111.0 * math.cos(math.radians(a["latitude"]))
+    return math.sqrt(dlat * dlat + dlng * dlng)
+
+
+@api.get("/trades", response_model=List[TradeOut])
+async def list_trades(user=Depends(get_current_user)):
+    """Trades involving the requesting camper, newest first."""
+    cur = db.trades.find(
+        {"$or": [{"proposer_id": user["id"]}, {"receiver_id": user["id"]}]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(50)
+    out = []
+    async for t in cur:
+        out.append(await _trade_to_out(t))
+    return out
+
+
+@api.post("/trades/{trade_id}/accept", response_model=TradeOut)
+async def accept_trade(trade_id: str, user=Depends(get_current_user)):
+    cfg = await load_spawn_config()
+    if not cfg.get("social_enabled", True):
+        raise HTTPException(403, "Trading is currently disabled")
+    t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Trade not found")
+    if t["status"] != "proposed":
+        raise HTTPException(400, f"Trade is {t['status']}")
+    if t["receiver_id"] != user["id"]:
+        raise HTTPException(403, "Only the receiver can accept this trade")
+    if datetime.fromisoformat(t["expires_at"]) < now_utc():
+        await db.trades.update_one({"id": trade_id}, {"$set": {"status": "expired"}})
+        raise HTTPException(400, "Trade expired")
+    # Proximity gate
+    proximity = float(cfg.get("trade_proximity_m", 30.0))
+    dist = await _camper_distance_m(t["proposer_id"], t["receiver_id"])
+    if dist is None:
+        raise HTTPException(400, "Both campers need to be on their iPads at the same time. Try again together!")
+    if dist > proximity:
+        raise HTTPException(400, f"Stand within {int(proximity)} m of each other to confirm the trade — you're {int(dist)} m apart.")
+    # Daily cap (combined)
+    cap = int(cfg.get("trade_daily_cap", 3))
+    today_ymd = _local_ymd(now_utc())
+    for cid in (t["proposer_id"], t["receiver_id"]):
+        n = await db.trades.count_documents({
+            "$or": [{"proposer_id": cid}, {"receiver_id": cid}],
+            "status": "accepted",
+            "completed_ymd": today_ymd,
+        })
+        if n >= cap:
+            raise HTTPException(429, "Your friend has hit today's trade limit. Try again tomorrow!")
+    # Re-check ownership at confirm time (kid might have evolved meanwhile)
+    if not await _has_caught(t["proposer_id"], t["offer_pokemon_id"]):
+        raise HTTPException(400, "Your friend no longer has the Pokémon they offered")
+    if not await _has_caught(t["receiver_id"], t["request_pokemon_id"]):
+        raise HTTPException(400, "You no longer have the Pokémon they're asking for")
+    # Execute the swap. Atomic delete-then-grant pairs per side.
+    await _delete_one_catch(t["proposer_id"], t["offer_pokemon_id"])
+    await _grant_traded_pokemon(t["receiver_id"], t["offer_pokemon_id"], source_camper_id=t["proposer_id"])
+    await _delete_one_catch(t["receiver_id"], t["request_pokemon_id"])
+    await _grant_traded_pokemon(t["proposer_id"], t["request_pokemon_id"], source_camper_id=t["receiver_id"])
+    revert_until = now_utc() + timedelta(hours=TRADE_REVERT_HOURS)
+    await db.trades.update_one(
+        {"id": trade_id},
+        {"$set": {
+            "status": "accepted",
+            "completed_at": now_utc().isoformat(),
+            "completed_ymd": today_ymd,
+            "revert_until": revert_until.isoformat(),
+        }},
+    )
+    refreshed = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    return await _trade_to_out(refreshed)
+
+
+@api.post("/trades/{trade_id}/reject", response_model=TradeOut)
+async def reject_trade(trade_id: str, user=Depends(get_current_user)):
+    t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Trade not found")
+    if t["receiver_id"] != user["id"] and t["proposer_id"] != user["id"]:
+        raise HTTPException(403, "Not your trade")
+    if t["status"] != "proposed":
+        raise HTTPException(400, f"Trade is already {t['status']}")
+    await db.trades.update_one({"id": trade_id}, {"$set": {"status": "rejected"}})
+    return await _trade_to_out({**t, "status": "rejected"})
+
+
+@api.post("/trades/{trade_id}/revert", response_model=TradeOut)
+async def revert_trade(trade_id: str, user=Depends(get_current_user)):
+    t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Trade not found")
+    if t["status"] != "accepted":
+        raise HTTPException(400, "Only accepted trades can be reverted")
+    if user["id"] not in (t["proposer_id"], t["receiver_id"]):
+        raise HTTPException(403, "Not your trade")
+    if not t.get("revert_until") or datetime.fromisoformat(t["revert_until"]) < now_utc():
+        raise HTTPException(400, "Revert window has closed")
+    # Swap them back. Both sides should still own the Pokémon they received.
+    if not await _has_caught(t["proposer_id"], t["request_pokemon_id"]):
+        raise HTTPException(400, "Cannot revert — you no longer have the traded Pokémon")
+    if not await _has_caught(t["receiver_id"], t["offer_pokemon_id"]):
+        raise HTTPException(400, "Cannot revert — your friend no longer has the traded Pokémon")
+    await _delete_one_catch(t["proposer_id"], t["request_pokemon_id"])
+    await _grant_traded_pokemon(t["receiver_id"], t["request_pokemon_id"], source_camper_id=t["proposer_id"])
+    await _delete_one_catch(t["receiver_id"], t["offer_pokemon_id"])
+    await _grant_traded_pokemon(t["proposer_id"], t["offer_pokemon_id"], source_camper_id=t["receiver_id"])
+    await db.trades.update_one({"id": trade_id}, {"$set": {"status": "reverted", "reverted_at": now_utc().isoformat()}})
+    refreshed = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    return await _trade_to_out(refreshed)
+
+
+# --- Admin trade-audit panel ---
+
+@api.get("/admin/trades", response_model=List[TradeOut])
+async def admin_list_trades(admin=Depends(get_current_admin)):
+    out = []
+    async for t in db.trades.find({}, {"_id": 0}).sort("created_at", -1).limit(500):
+        out.append(await _trade_to_out(t))
+    return out
+
+
+@api.post("/admin/trades/{trade_id}/revert")
+async def admin_revert_trade(trade_id: str, admin=Depends(get_current_admin)):
+    """Admin override: revert ANY accepted trade regardless of the 24h
+    camper-side window (kid-safety escape hatch)."""
+    t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Trade not found")
+    if t["status"] != "accepted":
+        raise HTTPException(400, "Only accepted trades can be reverted")
+    if not await _has_caught(t["proposer_id"], t["request_pokemon_id"]):
+        raise HTTPException(400, "Cannot revert — proposer no longer has the traded Pokémon")
+    if not await _has_caught(t["receiver_id"], t["offer_pokemon_id"]):
+        raise HTTPException(400, "Cannot revert — receiver no longer has the traded Pokémon")
+    await _delete_one_catch(t["proposer_id"], t["request_pokemon_id"])
+    await _grant_traded_pokemon(t["receiver_id"], t["request_pokemon_id"], source_camper_id=t["proposer_id"])
+    await _delete_one_catch(t["receiver_id"], t["offer_pokemon_id"])
+    await _grant_traded_pokemon(t["proposer_id"], t["offer_pokemon_id"], source_camper_id=t["receiver_id"])
+    await db.trades.update_one({"id": trade_id}, {"$set": {
+        "status": "reverted",
+        "reverted_at": now_utc().isoformat(),
+        "reverted_by_admin": True,
+    }})
+    return {"ok": True}
+
 
 
 @api.delete("/admin/raids/{raid_id}")

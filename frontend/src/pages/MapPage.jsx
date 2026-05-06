@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt, Volume2, VolumeX } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt, Volume2, VolumeX, Users as UsersIcon } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
@@ -715,6 +715,15 @@ export default function MapPage() {
                         title="Weekly leaderboard"
                     >
                         <Trophy className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => nav("/friends")}
+                        className="glass-dark rounded-full p-2"
+                        aria-label="Friends, trades & gifts"
+                        data-testid="open-friends-btn"
+                        title="Friends, trades & gifts"
+                    >
+                        <UsersIcon className="w-4 h-4" />
                     </button>
                     <button
                         onClick={() => nav("/collection")}

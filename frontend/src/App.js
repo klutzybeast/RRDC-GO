@@ -9,6 +9,7 @@ import ARPage from "@/pages/ARPage";
 import CollectionPage from "@/pages/CollectionPage";
 import LeaderboardPage from "@/pages/LeaderboardPage";
 import RaidScreen from "@/pages/RaidScreen";
+import FriendsPage from "@/pages/FriendsPage";
 import AdminLoginPage from "@/pages/AdminLoginPage";
 import AdminPage from "@/pages/AdminPage";
 import { Toaster } from "sonner";
@@ -50,6 +51,7 @@ export default function App() {
                                 <Route path="/collection" element={<UserRoute><CollectionPage /></UserRoute>} />
                                 <Route path="/leaderboard" element={<UserRoute><LeaderboardPage /></UserRoute>} />
                                 <Route path="/raid/:raidId" element={<UserRoute><RaidScreen /></UserRoute>} />
+                                <Route path="/friends" element={<UserRoute><FriendsPage /></UserRoute>} />
                                 <Route path="/admin/login" element={<AdminLoginPage />} />
                                 <Route path="/admin/*" element={<AdminRoute><AdminPage /></AdminRoute>} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
