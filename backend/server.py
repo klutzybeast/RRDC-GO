@@ -34,7 +34,8 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Camp1993")
-CAMPER_API_URL = os.environ.get("CAMPER_API_URL", "https://camp-staff-guide.preview.emergentagent.com/api/groups/campers")
+CAMPER_API_URL = os.environ.get("CAMPER_API_URL", "https://campersnapshot.com/api/groups/campers")
+CAMPER_SNAPSHOT_API_KEY = os.environ.get("CAMPER_SNAPSHOT_API_KEY", "")
 SYNC_TIMEZONE = os.environ.get("SYNC_TIMEZONE", "America/New_York")
 JWT_ALGO = "HS256"
 ACCESS_TTL_HOURS = 24
@@ -1778,7 +1779,10 @@ async def sync_roster() -> dict:
     result = {"camper_count": 0, "group_count": 0, "added": 0, "updated": 0, "removed": 0, "error": None}
     try:
         async with httpx.AsyncClient(timeout=30.0) as hx:
-            r = await hx.get(CAMPER_API_URL)
+            headers = {}
+            if CAMPER_SNAPSHOT_API_KEY:
+                headers["X-Api-Key"] = CAMPER_SNAPSHOT_API_KEY
+            r = await hx.get(CAMPER_API_URL, headers=headers)
             r.raise_for_status()
             data = r.json()
         groups = data.get("groups") or {}
