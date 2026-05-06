@@ -383,3 +383,57 @@ Camper login → group/camper select → map renders Nearby pill (5 nearby), mod
 - **Sprint 6 (P2)**: Party Play (4-kid groups walking together for bonuses).
 - **Admin enhancement (P1, small)**: Stationary-kid alert badge on Live Map (>15 min no movement).
 - **Tech debt (P2)**: Split `server.py` (~3000 lines) into `/app/backend/routers/`.
+
+
+
+## 2026-05-06 — Pokemon-GO parity (Iteration 16)
+
+Massive multi-tier upgrade prompt from user. Shipped a focused subset; the rest is explicitly deferred (see Backlog).
+
+### Shipped ✅
+
+**Backend**
+- `WOBBLE_RETENTION` 3-stage catch model — common 0.99³, uncommon ≈0.88, rare ≈0.74, legendary ≈0.54. Ball multiplier raises retention via `stage^(1/ball_mult)`, clamped at 0.99. Empirically: common+pokeball 98.3%, legendary+pokeball 55%, lunchball lifts legendary to ~77%.
+- `SHINY_RATE` = 0.01 — pure cosmetic shiny roll on every successful catch. Stored on catch record.
+- Daily streak system (`camper_streaks` collection) — `_apply_daily_streak()` increments on first catch of local-camp-tz day, resets to 1 on missed day. Reward table 0/5/10/15/25/40/75 (cap 75 day 8+). Granted via `adjust_ball(..., reason="streak_bonus")`.
+- New endpoint: `GET /api/streak` — returns current/longest/at_risk/caught_today/next_reward.
+- `CatchResult` model adds `wobble_stages`, `is_shiny`, `streak`.
+- CamperSnap roster sync now sends `X-Api-Key: $CAMPER_SNAPSHOT_API_KEY` header. Source URL switched to `https://campersnapshot.com/api/groups/campers`.
+
+**Frontend**
+- `BallWobbleSequence.jsx` — drop → 1-2-3 wobble → sealed (success burst) or burst-open (escape). Per-tick haptic. data-testids: `ball-wobble-1/2/3`, `ball-sealed`, `ball-burst`.
+- ARPage: throws now play 850ms ball-flight, then mount BallWobbleSequence, then resolve to CatchSuccessModal or "Dodged!" flash. PokemonOverlay hidden during wobble.
+- CatchSuccessModal: SHINY badge (`data-testid="shiny-badge"`) + Daily-streak callout (`data-testid="streak-callout"`).
+- MapPage:
+  - Streak pill (`data-testid="streak-pill"`) in top action row; "!" badge when streak at risk.
+  - Spawn markers scale by distance (>100m→0.7, 50-100m→0.85, 20-50m→1.0, <20m→1.1) with framer-motion spring.
+  - Per-rarity pulsing glow ring (slate/green/blue/gold) outside the radial halo, faster pulse for higher rarity.
+  - Stagger animation start times via `spawn_id`-derived seed so adjacent markers don't bob in lock-step.
+  - Avatar rotates to bearing while walking (computed from consecutive GPS deltas).
+
+### Test pass: iteration_16.json — 100% (16/16 backend, frontend full flow)
+Empirical wobble tuning verified, streak math verified across consecutive-day + skipped-day, full catch flow end-to-end on 414×896 mobile viewport.
+
+### Deferred to next iteration ❌
+- TIER 1: rustling-grass spawn-arrival hint, minimap/radar.
+- TIER 2: skill-based throw rings (NICE/GREAT/EXCELLENT) + curveball, ball arc physics rework.
+- TIER 3: Special timed events admin tab, Buddy Pokemon, Evolutions, Pokestops cooldown + items inventory.
+- TIER 4: ALL — see-other-campers, raids, trading, friends. (Trading/friends explicitly P3 pending safety review.)
+- TIER 5: full sound effect library + Pokemon cries. Mute toggle scaffold already exists.
+- ADMIN: Events tab, Raids tab, evolution dropdown on Pokemon roster, bulk-grant balls in Wallet tab.
+
+### Files added
+- `/app/frontend/src/components/BallWobbleSequence.jsx`
+- `/app/backend/tests/test_iteration16.py` (16 tests)
+- `/app/backend/.env.example`
+
+### Files modified
+- `/app/backend/server.py` — wobble + shiny + streak constants/helpers/endpoint, CatchResult fields, X-Api-Key header.
+- `/app/backend/.env` — CAMPER_API_URL, CAMPER_SNAPSHOT_API_KEY.
+- `/app/frontend/src/pages/ARPage.jsx` — wobble integration.
+- `/app/frontend/src/pages/MapPage.jsx` — streak pill, marker size/ring, avatar bearing.
+- `/app/frontend/src/components/CatchSuccessModal.jsx` — shiny + streak.
+
+### Schema diff
+- `camper_streaks`: { id (camper_id), current_streak, longest_streak, last_caught_ymd, last_reward_at }
+- `catches.is_shiny`: bool (new field)

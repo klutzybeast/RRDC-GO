@@ -676,7 +676,7 @@ export default function MapPage() {
                                 {streak.current_streak}
                             </span>
                             <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
-                                day{streak.current_streak === 1 ? "" : "s"}
+                                d
                             </span>
                             {streak.at_risk && !streak.caught_today && (
                                 <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full px-1.5 h-[18px] min-w-[18px] flex items-center justify-center" data-testid="streak-at-risk">
