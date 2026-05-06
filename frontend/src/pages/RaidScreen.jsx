@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { useUserAuth } from "../contexts/AuthContext";
 import RarityBadge from "../components/RarityBadge";
 import { toast } from "sonner";
+import { sfx } from "../lib/soundFx";
 
 export default function RaidScreen() {
     const { raidId } = useParams();
@@ -36,9 +37,11 @@ export default function RaidScreen() {
             refreshWallet();
             if (r.data.defeated) {
                 setDefeated(true);
+                sfx.raidDefeated();
                 toast.success("🎉 Raid defeated! Pokémon added to your collection.");
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
             } else {
+                sfx.ballHit();
                 if (navigator.vibrate) navigator.vibrate(40);
             }
             setRaid((prev) => prev ? { ...prev, damage_dealt: r.data.damage_dealt, max_hp: r.data.max_hp } : prev);

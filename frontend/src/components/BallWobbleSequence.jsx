@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CampBall from "./CampBall";
+import { sfx } from "../lib/soundFx";
 
 /**
  * Pokemon-GO style 1-2-3 wobble sequence.
@@ -18,6 +19,7 @@ import CampBall from "./CampBall";
  */
 export default function BallWobbleSequence({ ballId = "pokeball", stages, success, onDone, onFail }) {
     const safe = Array.isArray(stages) && stages.length === 3 ? stages : [true, true, true];
+    const sfxRef = useRef(sfx);
     // How many wobble ticks to play before resolving.
     const heldCount = safe.findIndex((s) => s === false);
     const totalWobbles = heldCount === -1 ? 3 : heldCount + 1; // +1 = the failed wobble shown before burst
@@ -49,10 +51,11 @@ export default function BallWobbleSequence({ ballId = "pokeball", stages, succes
         return () => clearTimeout(t);
     }, [phase, tick, totalWobbles, success, onDone, onFail]);
 
-    // Per-tick haptic
+    // Per-tick haptic + sound
     useEffect(() => {
         if (phase !== "wobble" || tick === 0) return;
         if (navigator.vibrate) navigator.vibrate(30);
+        sfxRef.current?.ballWobble?.(tick);
     }, [phase, tick]);
 
     return (

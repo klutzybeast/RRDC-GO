@@ -14,6 +14,7 @@ import ThrowRings from "../components/ThrowRings";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
+import { sfx, playCry } from "../lib/soundFx";
 import { toast } from "sonner";
 import { Camera, CameraOff, LogOut, BackpackIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -129,17 +130,13 @@ export default function ARPage() {
             if (chosen && !announcedRef.current) {
                 announcedRef.current = true;
                 if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
-                try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    const o = ctx.createOscillator();
-                    const g = ctx.createGain();
-                    o.frequency.value = 880;
-                    o.connect(g); g.connect(ctx.destination);
-                    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-                    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.03);
-                    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-                    o.start(); o.stop(ctx.currentTime + 0.6);
-                } catch {}
+                sfx.spawnAppear();
+                // Cry: use Pokémon's recorded clip if admin uploaded one,
+                // otherwise fall back to a procedural warble seeded by the slot
+                // number so each species sounds distinct + reproducible.
+                const cryUrl = chosen.pokemon?.cry_audio_url;
+                const seed = chosen.pokemon?.slot_number || (chosen.pokemon?.id || "x").length;
+                playCry(cryUrl, seed);
             }
         } catch {
             // silent
@@ -262,8 +259,10 @@ export default function ARPage() {
         }
         setThrowing(true);
         setShowBallAnim(true);
+        sfx.ballThrow();
         // Match the ball-flight duration in the SVG below (~0.85s)
         await new Promise((r) => setTimeout(r, 850));
+        sfx.ballHit();
         try {
             const res = await userApi.post("/spawn/catch", {
                 spawn_id: spawn.spawn_id,
@@ -311,6 +310,10 @@ export default function ARPage() {
             setResult(w.pendingResult);
             setSpawn(null);
             tryPlayCatch();
+            // Legendary sting on top of the regular catch chime
+            if (w.pendingResult.pokemon?.rarity === "legendary") {
+                sfx.legendaryCatch();
+            }
             const rewards = w.pendingResult.ball_rewards || {};
             Object.entries(rewards).forEach(([rb, n]) => {
                 if (n > 0) toast.success(`+${n} ${rb} earned!`, { duration: 4000 });
@@ -322,6 +325,7 @@ export default function ARPage() {
             setFlash(w.pendingMessage || "Dodged!");
             setTimeout(() => setFlash(""), 1200);
             tryPlayMiss();
+            sfx.catchFail();
             if (navigator.vibrate) navigator.vibrate(200);
         }
         setWobble(null);

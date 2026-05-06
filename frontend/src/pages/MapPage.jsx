@@ -22,6 +22,8 @@ import ActiveEventBanner from "../components/ActiveEventBanner";
 import BuddyStrip from "../components/BuddyStrip";
 import GroupCampersOverlay from "../components/GroupCampersOverlay";
 import RaidsOverlay from "../components/RaidsOverlay";
+import MuteToggle from "../components/MuteToggle";
+import { sfx } from "../lib/soundFx";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
@@ -161,6 +163,7 @@ export default function MapPage() {
             flashDelta(balls);
             refreshWallet();
             refreshPokestopStatus();
+            sfx.pokestopSpin();
             if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
         } catch (e) {
             const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
@@ -766,6 +769,7 @@ export default function MapPage() {
                     />
                     <BuddyStrip onTap={() => nav("/collection")} />
                     <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                    <MuteToggle />
                 </div>
             </div>
 

@@ -129,6 +129,10 @@ class PokemonOut(BaseModel):
     # camper evolve it into the slot identified by `evolution_target_id`.
     evolution_target_id: Optional[str] = None
     evolution_cost: int = 25
+    # Optional Pokémon "cry" — audio data URL or hosted MP3/WAV. Plays when
+    # the camper enters the AR catch screen and on catch success. If empty,
+    # the client falls back to a procedural warble seeded by slot_number.
+    cry_audio_url: str = ""
 
 
 class PokemonUpdate(BaseModel):
@@ -142,6 +146,7 @@ class PokemonUpdate(BaseModel):
     featured: Optional[bool] = None
     evolution_target_id: Optional[str] = None
     evolution_cost: Optional[int] = None
+    cry_audio_url: Optional[str] = None
 
 
 class SpawnConfig(BaseModel):
@@ -998,6 +1003,7 @@ def pokemon_to_out(doc: dict) -> PokemonOut:
         featured=bool(doc.get("featured", False)),
         evolution_target_id=doc.get("evolution_target_id"),
         evolution_cost=int(doc.get("evolution_cost", 25)),
+        cry_audio_url=doc.get("cry_audio_url", "") or "",
     )
 
 

@@ -1,0 +1,27 @@
+import React, { useEffect, useState } from "react";
+import { Volume2, VolumeX } from "lucide-react";
+import { isMuted, toggleMuted, onMuteChange, sfx } from "../lib/soundFx";
+
+/**
+ * Tiny audio mute toggle. Persists to localStorage. Plays a tap when toggled
+ * back on so the user gets immediate feedback that audio is back.
+ */
+export default function MuteToggle({ className = "" }) {
+    const [muted, setMuted] = useState(isMuted());
+    useEffect(() => onMuteChange(setMuted), []);
+    return (
+        <button
+            onClick={() => {
+                const now = toggleMuted();
+                if (!now) sfx.uiTap();
+            }}
+            className={`bg-white/95 backdrop-blur-sm rounded-full p-2 shadow-lg hover:bg-white transition-colors ${className}`}
+            title={muted ? "Unmute sound effects" : "Mute sound effects"}
+            data-testid="mute-toggle"
+        >
+            {muted
+                ? <VolumeX className="w-4 h-4 text-slate-500" />
+                : <Volume2 className="w-4 h-4 text-river-600" />}
+        </button>
+    );
+}

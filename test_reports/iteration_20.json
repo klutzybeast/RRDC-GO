@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 20 (Tier 5: SFX library + Pokemon cries + global mute) — 8/8 PASS in /app/backend/tests/test_iteration20.py. The CRITICAL iter_19 raid-defeat regression is FIXED: defeat path returns 200 with defeated=True, pokemon=PokemonOut, power_rolled set; status flips to 'defeated' atomically; every participant gets exactly 1 synthetic catch (is_raid=True, ball_type='raid', caught_by='first last', NOT 'Camper' fallback); +3 candies per participant. Concurrent killing-blow test confirms only ONE reward loop runs (no double-rewards). cry_audio_url field is plumbed end-to-end on PokemonOut/PokemonUpdate (PATCH persists, subsequent GET returns it, '' clears). Re-running iter_16..19 suite: 72/73 pass — the 1 failing test (test_iteration18.TestBuddy::test_set_and_get_buddy) is PRE-EXISTING and unrelated to iter_20 (already present in iter_18 results, expects pokemon_name in buddy GET response). Frontend: MuteToggle on MapPage flips localStorage `rrdc:muted` between '0' and '1' and swaps Volume2↔VolumeX icon; admin Events tab + Raids tab load cleanly. NOTE: ARPage / RaidScreen sound triggers can only be statically verified — Web Audio API is not testable in headless browser.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/buddy", "issue": "PRE-EXISTING (NOT iter_20): response missing 'pokemon_name' key — test_iteration18.TestBuddy::test_set_and_get_buddy fails. Carry-over from iter_18; not introduced or regressed by iter_20."},
+      {"endpoint": "PATCH /api/admin/pokemon/{id}", "issue": "cry_audio_url has no server-side length cap. Frontend caps at ~500KB but a malicious admin could PATCH a multi-MB data URL. Consider adding a soft 1MB validator on the backend. Currently NOT enforced (per spec)."},
+      {"endpoint": "POST /api/raids/{id}/throw", "issue": "Concurrent race: when two throws hit the killing-blow simultaneously, the second one returns 200 with defeated=True but its participant may not be in res['participants'] (addToSet happens BEFORE the status flip but the loser of the flip race uses the early `res` snapshot). Net effect is correct (no double-reward, atomic flip works) but the loser's catch_doc only inserts if their cid was already added by their own $addToSet. Verified: no duplicate catches; participant count >= 1; both throws return 200."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "MuteToggle clickability over Welcome onboarding modal", "issue": "On a fresh camper login the 'Welcome, Colton — Allow location' modal renders ABOVE the top action row and visually obscures the mute-toggle. force=True clicks still go through (verified), but a real user will perceive the toggle as unclickable until they dismiss the onboarding. Consider hiding action-row controls behind onboarding OR raising onboarding modal's z-index above them OR moving MuteToggle into the onboarding chrome.", "affected_selectors": ["[data-testid='mute-toggle']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration20.py",
+    "/app/test_reports/pytest/iteration20_results.xml"
+  ],
+  "action_items": [
+    "(None CRITICAL) Iter_20 ships clean. Carry-over: investigate buddy GET pokemon_name field (iter_18 carry-over; not blocking).",
+    "MINOR UX: MuteToggle is visually hidden by Welcome onboarding modal on first map load — consider z-index ordering or hiding action-row until onboarding dismissed."
+  ],
+  "critical_code_review_comments": [
+    "server.py raid_throw() (~lines 3341-3435): defect from iter_19 properly fixed — db.users → db.campers, evolved_pl initialised before participant loop, caught_by uses first_name + last_name with 'Camper' fallback. Atomic flip via update_one with status guard prevents double-rewards. GOOD.",
+    "server.py raid_throw() line 3387: `evolved_pl = None` is set before the loop. If participants is non-empty AND every find_one_in_campers returns None (e.g., test polluted DB or campers re-synced after raid creation), the function still returns RaidThrowResult(power_rolled=None) — schema allows that. Safe.",
+    "server.py PokemonOut.cry_audio_url default '' (line 135) and pokemon_to_out forwards `doc.get('cry_audio_url', '') or ''` (line 1006) — defensive double-fallback for legacy docs without the field. GOOD.",
+    "frontend/src/lib/soundFx.js: 173 lines, well-organized. _muted state initialised from localStorage at module load — safe in SSR via try/catch. setMuted writes localStorage and broadcasts to subscribers. All 13 sfx.* methods + playCry, isMuted, setMuted, toggleMuted, onMuteChange exported as required.",
+    "frontend/src/components/MuteToggle.jsx: 28 lines, clean. Subscribes to onMuteChange to re-render icon after external mutes (e.g., via setMuted from sounds.js). Plays uiTap when un-muting (good UX feedback).",
+    "frontend/src/pages/admin/PokemonTab.jsx (~lines 391-410): cry uploader uses FileReader.readAsDataURL → form.cry_audio_url. data-testid pokemon-form-cry-file always rendered; cry-play and cry-clear conditionally rendered when form.cry_audio_url is non-empty. NO client-side size guard visible — review request claims ~500KB cap on frontend; verify max file size validation exists or add it.",
+    "frontend/src/lib/sounds.js: legacy isSoundEnabled() now reads BOTH `rrdc_sounds_off` AND `rrdc:muted`. Unified mute UX preserved.",
+    "OPEN UX: MuteToggle z-index is below Welcome onboarding modal — on fresh login the toggle is visually hidden. force-clicks succeed in tests but real users won't realise it's there until onboarding dismissed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration20.py (new)",
+    "/app/test_reports/pytest/iteration20_results.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "100% on iter_20 (8/8). Re-running iter_16..19 = 72/73 (98.6%); the 1 failure is a pre-existing iter_18 buddy-name issue, NOT a regression introduced by iter_20.",
+    "frontend": "MuteToggle: PASS (localStorage flips 0↔1, icon swaps, no errors). Admin Events tab: PASS. Admin Raids tab: PASS. Admin Pokemon cry uploader: NOT directly clicked in browser (admin-tab-pokemon list rows did not render edit-pokemon-* selectors during the test window; static analysis confirms data-testids 'pokemon-form-cry-file' (always), 'pokemon-form-cry-play' + 'pokemon-form-cry-clear' (conditional on form.cry_audio_url being set) are wired correctly). Spawn config 'show-group-positions' switch: testid not found by exact name — main agent should self-verify the exact testid string."
+  },
+  "test_credentials": "Admin: admin / Camp1993. Camper: B01 idx 5/6 (backend tests). Frontend used B01 first camper.",
+  "seed_data_creation": "test_iteration20.py uses motor to seed (a) camper_positions at 40.6396,-73.6665, (b) camper_wallets balances, (c) helper _force_raid_active to put a freshly-created TEST_iter20_* raid into the active window with custom max_hp. Cleanup: each test deletes the raid it created via DELETE /admin/raids/{id}.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter_20 adds: (a) Pokemon.cry_audio_url field on PokemonOut/PokemonUpdate — optional data: URL string, frontend caps ~500KB but server has no length validator (per spec). (b) New file /app/frontend/src/lib/soundFx.js exports `sfx` object (uiTap, spawnAppear, spawnNearby, ballThrow, ballHit, ballWobble(stage), catchSuccess, catchFail, legendaryCatch, streakClaimed, pokestopSpin, raidEngage, raidDefeated) + playCry(url, seed) + isMuted/setMuted/toggleMuted/onMuteChange. Mute persists at localStorage `rrdc:muted` ('0' or '1'). Legacy `rrdc_sounds_off` still honoured by sounds.js. (c) MuteToggle component with data-testid='mute-toggle' is in MapPage top action row. Important: on first camper login the welcome onboarding modal overlays the action row — use force=True or dismiss onboarding before clicking. (d) raid_throw atomic-flip fix from iter_19 is verified — db.campers (NOT db.users), caught_by uses first_name+last_name. The /api/buddy 'pokemon_name missing' test failure is PRE-EXISTING (iter_18 carry-over) and not in scope for iter_20.",
+  "rca of the issue": "Iter_19's raid-defeat regression is now resolved. Root cause was (1) lookup against wrong collection (db.users instead of db.campers) and (2) UnboundLocalError on `evolved_pl` because the variable was only assigned inside a loop body that always short-circuited. iter_20 fix: db.campers.find_one is used; evolved_pl is initialised to None before the loop; caught_by is constructed from first_name + ' ' + last_name with 'Camper' fallback. Verified by 8/8 passing tests including the previously-failing iter_19 'defeat → all participants catch' assertion AND a new concurrent-killing-blow test that fires two throws in parallel threads and confirms exactly ONE reward loop runs (no double-catch, no double-candy)."
+}

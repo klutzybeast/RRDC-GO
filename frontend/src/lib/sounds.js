@@ -98,7 +98,11 @@ export function playClick() {
 
 const SOUNDS_DISABLED_KEY = "rrdc_sounds_off";
 export function isSoundEnabled() {
-    return localStorage.getItem(SOUNDS_DISABLED_KEY) !== "1";
+    // Check BOTH legacy key and the unified `rrdc:muted` key from soundFx so a
+    // single mute toggle controls every sound in the app.
+    if (localStorage.getItem(SOUNDS_DISABLED_KEY) === "1") return false;
+    if (localStorage.getItem("rrdc:muted") === "1") return false;
+    return true;
 }
 export function setSoundEnabled(enabled) {
     if (enabled) localStorage.removeItem(SOUNDS_DISABLED_KEY);

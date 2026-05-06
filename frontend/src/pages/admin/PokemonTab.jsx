@@ -20,7 +20,7 @@ export default function PokemonTab() {
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
-    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", type: "normal", description: "", active: false, featured: false, evolution_target_id: "", evolution_cost: 25 });
+    const [form, setForm] = useState({ name: "", power_level: 100, rarity: "common", type: "normal", description: "", active: false, featured: false, evolution_target_id: "", evolution_cost: 25, cry_audio_url: "" });
     const [uploading, setUploading] = useState(false);
     const [seeding, setSeeding] = useState(false);
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -51,6 +51,7 @@ export default function PokemonTab() {
             featured: !!p.featured,
             evolution_target_id: p.evolution_target_id || "",
             evolution_cost: Number(p.evolution_cost ?? 25),
+            cry_audio_url: p.cry_audio_url || "",
         });
         setOpen(true);
     };
@@ -62,6 +63,7 @@ export default function PokemonTab() {
                 power_level: Number(form.power_level),
                 evolution_target_id: form.evolution_target_id || null,
                 evolution_cost: Number(form.evolution_cost) || 25,
+                cry_audio_url: form.cry_audio_url || "",
             });
             toast.success("Saved");
             load();
@@ -374,6 +376,40 @@ export default function PokemonTab() {
                                     data-testid="pokemon-form-evo-cost"
                                 />
                             </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 p-3 bg-slate-50">
+                            <Label className="text-slate-900">Cry sound (optional)</Label>
+                            <p className="text-xs text-slate-500 mb-2">Plays when the camper encounters this Pokémon. MP3/WAV under ~500 KB. Leave blank to use a procedural cry.</p>
+                            <input
+                                type="file"
+                                accept="audio/*"
+                                onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (!f) return;
+                                    if (f.size > 600 * 1024) { toast.error("Audio too big — max ~500 KB"); return; }
+                                    const reader = new FileReader();
+                                    reader.onload = (ev) => setForm({ ...form, cry_audio_url: ev.target.result });
+                                    reader.readAsDataURL(f);
+                                }}
+                                className="w-full text-sm"
+                                data-testid="pokemon-form-cry-file"
+                            />
+                            {form.cry_audio_url && (
+                                <div className="mt-2 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => { try { new Audio(form.cry_audio_url).play(); } catch { /* noop */ } }}
+                                        className="text-xs text-river-600 underline"
+                                        data-testid="pokemon-form-cry-play"
+                                    >▶ Preview</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setForm({ ...form, cry_audio_url: "" })}
+                                        className="text-xs text-rose-600 underline"
+                                        data-testid="pokemon-form-cry-clear"
+                                    >Clear</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>
