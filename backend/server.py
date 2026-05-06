@@ -3365,19 +3365,34 @@ async def raid_throw(raid_id: str, ball_type: Optional[str] = "pokeball", user=D
     max_hp = int(res.get("max_hp", 1))
     pk = await db.pokemon.find_one({"id": res["pokemon_id"]}, {"_id": 0})
     if new_dmg >= max_hp and res.get("status") != "defeated":
-        # Mark defeated and grant ALL participants the catch
-        await db.raids.update_one({"id": raid_id}, {"$set": {"status": "defeated", "defeated_at": now_utc().isoformat()}})
+        # Mark defeated atomically — only the FIRST throw to clear HP runs the
+        # reward loop. Subsequent throws short-circuit at the status guard above.
+        flip = await db.raids.update_one(
+            {"id": raid_id, "status": {"$ne": "defeated"}},
+            {"$set": {"status": "defeated", "defeated_at": now_utc().isoformat()}},
+        )
+        if flip.modified_count == 0:
+            # Lost the race to another concurrent throw — surface as a no-op success
+            return RaidThrowResult(
+                ok=True, damage_dealt=new_dmg, max_hp=max_hp, defeated=True,
+                message="🎉 Raid defeated by your team!",
+                balances=wallet.get("balances") or {},
+            )
+        evolved_pl = None
         for cid in res.get("participants", []):
-            cu = await db.users.find_one({"id": cid}, {"_id": 0})
+            cu = await db.campers.find_one({"id": cid}, {"_id": 0})
             if not cu:
                 continue
+            first = (cu.get("first_name") or "").strip()
+            last = (cu.get("last_name") or "").strip()
+            display = (first + " " + last).strip() or "Camper"
             base_pl = int(pk.get("power_level", 200))
             evolved_pl = max(1, min(1000, int(base_pl * random.uniform(0.95, 1.0))))
             catch_doc = {
                 "id": str(uuid.uuid4()),
                 "group_id": cid,
-                "group_name": cu.get("group_name", ""),
-                "caught_by": cu.get("username", "Camper"),
+                "group_name": cu.get("group_code", ""),
+                "caught_by": display,
                 "pokemon_id": pk["id"],
                 "pokemon_name": pk.get("name", ""),
                 "pokemon_image": pk.get("image_data_url", ""),
