@@ -58,6 +58,7 @@ export default function MapPage() {
     const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
     const [zoom, setZoom] = useState(18);
     const [myLocation, setMyLocation] = useState(null);
+    const [gpsAccuracy, setGpsAccuracy] = useState(null); // meters; from pos.coords.accuracy
     const [geoError, setGeoError] = useState("");
     const [geoBlocked, setGeoBlocked] = useState(false);
     const mapRef = useRef(null);
