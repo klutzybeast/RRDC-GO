@@ -3,8 +3,9 @@ import { adminApi, formatApiError } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { toast } from "sonner";
-import { HandCoins, Search, Plus, Minus } from "lucide-react";
+import { HandCoins, Search, Plus, Minus, Users } from "lucide-react";
 
 const RIVER_BALL = "https://static.prod-images.emergentagent.com/jobs/5b062d42-aa16-478f-9904-4c1a14748b37/images/0e5d9cd254c7af67a52924c927b4fb710091bea4bdb211921ad2c64510b4c327.png";
 
@@ -27,6 +28,13 @@ export default function WalletTab() {
     const [grantReason, setGrantReason] = useState("Counselor award");
     const [saving, setSaving] = useState(false);
 
+    // Bulk-grant-by-group state
+    const [bulkOpen, setBulkOpen] = useState(false);
+    const [bulkGroup, setBulkGroup] = useState("");
+    const [bulkAmount, setBulkAmount] = useState(10);
+    const [bulkReason, setBulkReason] = useState("Group reward");
+    const [bulkSaving, setBulkSaving] = useState(false);
+
     const load = async () => {
         setLoading(true);
         try {
@@ -47,6 +55,39 @@ export default function WalletTab() {
     }, [filter, balances]);
 
     const totalInCirculation = balances.reduce((s, b) => s + (b.balance || 0), 0);
+
+    // Distinct group codes (sorted) computed from the balances list — same
+    // source the per-camper grant rows use, so we don't need a new endpoint.
+    const groups = useMemo(() => {
+        const m = new Map();
+        balances.forEach((b) => {
+            const code = (b.group_code || "").trim();
+            if (!code) return;
+            m.set(code, (m.get(code) || 0) + 1);
+        });
+        return Array.from(m.entries())
+            .map(([code, count]) => ({ code, count }))
+            .sort((a, b) => a.code.localeCompare(b.code));
+    }, [balances]);
+
+    const submitBulkGrant = async () => {
+        if (!bulkGroup) { toast.error("Pick a group first"); return; }
+        const amt = Number(bulkAmount);
+        if (!amt) { toast.error("Amount must be non-zero"); return; }
+        setBulkSaving(true);
+        try {
+            const r = await adminApi.post(`/admin/wallet/bulk-grant`, {
+                group_code: bulkGroup,
+                amount: amt,
+                reason: (bulkReason || "group_reward").toLowerCase().replace(/\s+/g, "_"),
+            });
+            toast.success(`${r.data.campers_updated} campers in ${r.data.group_code}: ${amt > 0 ? "+" : ""}${amt} each (${r.data.total_balls_issued >= 0 ? "+" : ""}${r.data.total_balls_issued} total)`);
+            setBulkOpen(false);
+            setBulkGroup("");
+            load();
+        } catch (e) { toast.error(formatApiError(e)); }
+        finally { setBulkSaving(false); }
+    };
 
     const openGrant = (camper, amount) => {
         setGrantTarget(camper);
@@ -76,11 +117,20 @@ export default function WalletTab() {
                     <h2 className="font-heading text-2xl font-bold text-slate-900">Ball Economy</h2>
                     <p className="text-slate-500 text-sm">Grant bonus Rolling River Balls to campers as rewards.</p>
                 </div>
-                <div className="flex items-center gap-2 bg-white rounded-2xl px-4 py-2 border border-slate-200">
-                    <img src={RIVER_BALL} alt="" className="w-6 h-6" />
-                    <div>
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">In circulation</div>
-                        <div className="font-heading text-xl font-bold text-slate-900" data-testid="balls-in-circulation">{totalInCirculation.toLocaleString()}</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                        onClick={() => { setBulkOpen(true); setBulkAmount(10); setBulkReason("Group reward"); }}
+                        className="tactile-btn rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-heading h-11"
+                        data-testid="bulk-grant-open-btn"
+                    >
+                        <Users className="w-4 h-4 mr-2" /> Grant to a group
+                    </Button>
+                    <div className="flex items-center gap-2 bg-white rounded-2xl px-4 py-2 border border-slate-200">
+                        <img src={RIVER_BALL} alt="" className="w-6 h-6" />
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">In circulation</div>
+                            <div className="font-heading text-xl font-bold text-slate-900" data-testid="balls-in-circulation">{totalInCirculation.toLocaleString()}</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -204,6 +254,80 @@ export default function WalletTab() {
                         <Button variant="outline" onClick={() => setGrantTarget(null)} className="rounded-2xl">Cancel</Button>
                         <Button onClick={submitGrant} disabled={saving} className="tactile-btn rounded-2xl bg-river-500 hover:bg-river-600 text-white font-heading" data-testid="grant-submit-btn">
                             {saving ? "Saving…" : `Grant ${grantAmount > 0 ? "+" : ""}${grantAmount}`}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Bulk-grant by group dialog */}
+            <Dialog open={bulkOpen} onOpenChange={(o) => !o && !bulkSaving && setBulkOpen(false)}>
+                <DialogContent className="rounded-3xl" data-testid="bulk-grant-dialog">
+                    <DialogHeader>
+                        <DialogTitle className="font-heading text-2xl">Grant balls to a whole group</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Group</div>
+                            <Select value={bulkGroup} onValueChange={setBulkGroup}>
+                                <SelectTrigger className="rounded-2xl h-11" data-testid="bulk-grant-group-select">
+                                    <SelectValue placeholder="Choose a group…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {groups.length === 0 ? (
+                                        <SelectItem value="__none" disabled>No groups loaded</SelectItem>
+                                    ) : groups.map((g) => (
+                                        <SelectItem key={g.code} value={g.code} data-testid={`bulk-grant-group-${g.code}`}>
+                                            {g.code} ({g.count} {g.count === 1 ? "camper" : "campers"})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Amount per camper</div>
+                            <div className="flex items-center gap-2">
+                                <Button variant="outline" size="sm" className="rounded-full h-10 w-10" onClick={() => setBulkAmount(Math.max(-500, Number(bulkAmount) - 5))}>
+                                    <Minus className="w-4 h-4" />
+                                </Button>
+                                <Input
+                                    type="number"
+                                    value={bulkAmount}
+                                    onChange={(e) => setBulkAmount(e.target.value)}
+                                    className="rounded-2xl h-11 text-center font-heading font-bold text-xl"
+                                    data-testid="bulk-grant-amount-input"
+                                />
+                                <Button variant="outline" size="sm" className="rounded-full h-10 w-10" onClick={() => setBulkAmount(Math.min(500, Number(bulkAmount) + 5))}>
+                                    <Plus className="w-4 h-4" />
+                                </Button>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">
+                                {bulkGroup && groups.find((g) => g.code === bulkGroup) ? (
+                                    <>Total issued: <span className="font-bold text-slate-700">{Number(bulkAmount) * (groups.find((g) => g.code === bulkGroup)?.count || 0)}</span> balls across {groups.find((g) => g.code === bulkGroup)?.count} campers.</>
+                                ) : (
+                                    <>Negative numbers deduct (e.g. -10 to take away).</>
+                                )}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Reason</div>
+                            <Input
+                                value={bulkReason}
+                                onChange={(e) => setBulkReason(e.target.value)}
+                                placeholder="e.g. Color war winners"
+                                className="rounded-2xl h-11"
+                                data-testid="bulk-grant-reason-input"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkSaving} className="rounded-2xl">Cancel</Button>
+                        <Button
+                            onClick={submitBulkGrant}
+                            disabled={bulkSaving || !bulkGroup || !Number(bulkAmount)}
+                            className="tactile-btn rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-heading"
+                            data-testid="bulk-grant-submit-btn"
+                        >
+                            {bulkSaving ? "Granting…" : `Grant ${Number(bulkAmount) > 0 ? "+" : ""}${Number(bulkAmount)} to each`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

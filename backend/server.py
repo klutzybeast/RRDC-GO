@@ -2305,7 +2305,9 @@ class PositionReq(BaseModel):
 async def save_camper_position(req: PositionReq, user=Depends(get_current_user)):
     """Persist the camper's current position. Throttled server-side: only writes
     if moved > 5 meters from last known or last write was > 20 s ago.
-    Also accumulates a daily 'meters walked' counter for the leaderboard."""
+    Also accumulates a daily 'meters walked' counter for the leaderboard.
+    Tracks `last_movement_at` separately so the admin live map can flag campers
+    who haven't actually moved in N minutes (vs. just paused on their iPad)."""
     now = now_utc()
     prev = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
     should_write = True
@@ -2320,6 +2322,12 @@ async def save_camper_position(req: PositionReq, user=Depends(get_current_user))
         if dt < 20 and dist_m < 5.0:
             should_write = False
     if should_write:
+        # Stationary detection: only refresh `last_movement_at` if the camper
+        # has actually moved >=8m (filters GPS jitter / stationary-but-pinging).
+        STATIONARY_MOVE_M = 8.0
+        moved = (not prev) or (dist_m >= STATIONARY_MOVE_M)
+        prior_movement_iso = prev.get("last_movement_at") if prev else None
+        last_movement_iso = now.isoformat() if moved else (prior_movement_iso or now.isoformat())
         await db.camper_positions.update_one(
             {"camper_id": user["id"]},
             {"$set": {
@@ -2331,6 +2339,7 @@ async def save_camper_position(req: PositionReq, user=Depends(get_current_user))
                 "longitude": float(req.longitude),
                 "accuracy": float(req.accuracy) if req.accuracy is not None else None,
                 "updated_at": now.isoformat(),
+                "last_movement_at": last_movement_iso,
             }},
             upsert=True,
         )
@@ -2358,6 +2367,7 @@ async def save_camper_position(req: PositionReq, user=Depends(get_current_user))
 @api.get("/admin/camper-positions")
 async def admin_camper_positions(admin=Depends(get_current_admin), max_age_min: int = 30):
     cutoff = now_utc() - timedelta(minutes=max_age_min)
+    now = now_utc()
     out = []
     async for p in db.camper_positions.find({}, {"_id": 0}):
         try:
@@ -2366,6 +2376,14 @@ async def admin_camper_positions(admin=Depends(get_current_admin), max_age_min: 
                 continue
         except Exception:
             continue
+        # Stationary minutes: how long since the camper actually moved.
+        # Falls back to updated_at for legacy rows without last_movement_at.
+        last_move_iso = p.get("last_movement_at") or p.get("updated_at")
+        try:
+            last_move_ts = datetime.fromisoformat(last_move_iso)
+            stationary_minutes = max(0, int((now - last_move_ts).total_seconds() / 60))
+        except Exception:
+            stationary_minutes = 0
         out.append({
             "camper_id": p["camper_id"],
             "first_name": p.get("first_name", ""),
@@ -2375,6 +2393,8 @@ async def admin_camper_positions(admin=Depends(get_current_admin), max_age_min: 
             "longitude": float(p["longitude"]),
             "accuracy": p.get("accuracy"),
             "updated_at": p["updated_at"],
+            "last_movement_at": last_move_iso,
+            "stationary_minutes": stationary_minutes,
         })
     return {"count": len(out), "positions": out}
 
@@ -4170,6 +4190,12 @@ class GrantReq(BaseModel):
     reason: Optional[str] = "counselor_award"
 
 
+class BulkGrantReq(BaseModel):
+    group_code: str
+    amount: int
+    reason: Optional[str] = "counselor_award"
+
+
 @api.post("/admin/wallet/{camper_id}/grant")
 async def admin_grant_balls(camper_id: str, req: GrantReq, admin=Depends(get_current_admin)):
     camper = await db.campers.find_one({"id": camper_id}, {"_id": 0})
@@ -4181,6 +4207,42 @@ async def admin_grant_balls(camper_id: str, req: GrantReq, admin=Depends(get_cur
         raise HTTPException(400, "Amount out of range")
     wallet = await adjust_balls(camper_id, int(req.amount), req.reason or "counselor_award", {"admin": admin.get("username", "admin")})
     return {"balance": wallet["balance"], "granted": req.amount, "camper": f"{camper.get('first_name','')} {camper.get('last_name','')}".strip()}
+
+
+@api.post("/admin/wallet/bulk-grant")
+async def admin_bulk_grant_balls(req: BulkGrantReq, admin=Depends(get_current_admin)):
+    """Grant (or deduct) the same amount of pokeballs to every camper in a
+    group at once. Returns the count of campers updated and the total balls
+    issued so the director can see the impact at a glance.
+    """
+    group_code = (req.group_code or "").strip()
+    if not group_code:
+        raise HTTPException(400, "group_code is required")
+    if req.amount == 0:
+        raise HTTPException(400, "Amount must be non-zero")
+    if abs(req.amount) > 1000:
+        raise HTTPException(400, "Amount out of range (max ±1000)")
+    campers = []
+    async for c in db.campers.find({"group_code": group_code}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}):
+        campers.append(c)
+    if not campers:
+        raise HTTPException(404, f"No campers found in group {group_code}")
+    reason = req.reason or "counselor_award"
+    meta = {"admin": admin.get("username", "admin"), "bulk_group": group_code, "bulk_size": len(campers)}
+    updated = 0
+    for c in campers:
+        try:
+            await adjust_balls(c["id"], int(req.amount), reason, meta)
+            updated += 1
+        except Exception:
+            # Don't let one bad wallet kill the whole bulk grant
+            pass
+    return {
+        "group_code": group_code,
+        "campers_updated": updated,
+        "amount_per_camper": int(req.amount),
+        "total_balls_issued": int(req.amount) * updated,
+    }
 
 
 @api.get("/admin/wallet/balances")

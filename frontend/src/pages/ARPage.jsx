@@ -11,6 +11,7 @@ import CampBall from "../components/CampBall";
 import BallSwitcher from "../components/BallSwitcher";
 import BallWobbleSequence from "../components/BallWobbleSequence";
 import ThrowRings from "../components/ThrowRings";
+import ItemPicker from "../components/ItemPicker";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
 import { tryPlayCatch, tryPlayMiss } from "../lib/sounds";
@@ -101,6 +102,20 @@ export default function ARPage() {
     // Wallet
     const { wallet, refresh: refreshWallet, claimDaily } = useWallet(true);
     const [showOutOfBalls, setShowOutOfBalls] = useState(false);
+
+    // Inventory (razz berry + lucky egg). Refreshed after catches so the AR
+    // screen shows the freshly-cleared `razz_berry_pending` flag and any
+    // lucky-egg countdown lines up with the backend's clock.
+    const [inventory, setInventory] = useState(null);
+    const refreshInventory = useCallback(async () => {
+        try {
+            const r = await userApi.get("/inventory");
+            setInventory(r.data);
+        } catch { /* noop */ }
+    }, []);
+    useEffect(() => { refreshInventory(); }, [refreshInventory]);
+    const razzPrimed = !!inventory?.buffs?.razz_berry_pending;
+    const luckyActive = !!inventory?.buffs?.lucky_egg_active;
 
     // Auto-pick best ball the camper actually owns when wallet first loads,
     // preferring fancy balls so kids see the value of what they earned.
@@ -328,6 +343,9 @@ export default function ARPage() {
             sfx.catchFail();
             if (navigator.vibrate) navigator.vibrate(200);
         }
+        // Razz berry consumes on every throw (success OR escape) and lucky-egg
+        // countdown drifts — pull the fresh inventory so the UI dot clears.
+        refreshInventory();
         setWobble(null);
         setThrowing(false);
     };
@@ -400,6 +418,7 @@ export default function ARPage() {
                     </button>
                     <div className="flex gap-2 items-center">
                         <BallCounter balance={wallet?.balance} onClick={() => setShowOutOfBalls(true)} />
+                        <ItemPicker onConsume={refreshInventory} />
                         <button
                             onClick={toggleCamera}
                             className="glass-dark rounded-full p-2"
@@ -438,6 +457,26 @@ export default function ARPage() {
                                 <span className="text-xs opacity-75">misses: {missCount}</span>
                             )}
                         </div>
+                        {(razzPrimed || luckyActive) && (
+                            <div className="mt-2 flex items-center justify-center gap-1.5 flex-wrap" data-testid="ar-active-buffs">
+                                {razzPrimed && (
+                                    <span
+                                        className="px-2 py-0.5 rounded-full bg-rose-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-rose-200/50 animate-pulse"
+                                        data-testid="razz-primed-chip"
+                                    >
+                                        Razz primed +30%
+                                    </span>
+                                )}
+                                {luckyActive && (
+                                    <span
+                                        className="px-2 py-0.5 rounded-full bg-amber-400/95 text-amber-950 text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-amber-200/60"
+                                        data-testid="lucky-active-chip"
+                                    >
+                                        Lucky 2× balls
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </motion.div>
                 )}
 

@@ -5,11 +5,12 @@ import { useGoogleMaps } from "../../contexts/GoogleMapsContext";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
-import { RefreshCw, MapPin } from "lucide-react";
+import { RefreshCw, MapPin, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import pokemonGoMapStyle from "../../lib/pokemonGoMapStyle";
 
 const POLL_MS = 5000;
+const STATIONARY_THRESHOLD_MIN = 15;
 
 const groupColor = (code) => {
     if (!code) return "#64748b";
@@ -85,6 +86,11 @@ export default function CamperMapTab() {
         return groupFilter ? positions.filter((p) => p.group_code === groupFilter) : positions;
     }, [positions, groupFilter]);
 
+    const stationaryCount = useMemo(
+        () => visible.filter((p) => Number(p.stationary_minutes || 0) >= STATIONARY_THRESHOLD_MIN).length,
+        [visible],
+    );
+
     const fitToCampers = () => {
         if (!mapRef.current || !window.google || visible.length === 0) {
             toast.info("No campers to fit");
@@ -101,6 +107,15 @@ export default function CamperMapTab() {
                 <div>
                     <h2 className="font-heading text-2xl font-bold text-slate-900">Where are my campers?</h2>
                     <p className="text-slate-500 text-sm">Live positions from active campers (auto-refresh every 5s).</p>
+                    {stationaryCount > 0 && (
+                        <div
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-rose-50 border border-rose-200 px-3 py-1 text-rose-700 text-xs font-bold"
+                            data-testid="stationary-alert-pill"
+                        >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            {stationaryCount} {stationaryCount === 1 ? "camper hasn't" : "campers haven't"} moved in {STATIONARY_THRESHOLD_MIN}+ min
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-end gap-2 flex-wrap">
                     <div className="w-32">
@@ -179,6 +194,7 @@ export default function CamperMapTab() {
                             {visible.map((p) => {
                                 const color = groupColor(p.group_code);
                                 const initials = `${(p.first_name?.[0] || "?")}${(p.last_name?.[0] || "")}`.toUpperCase();
+                                const isStationary = Number(p.stationary_minutes || 0) >= STATIONARY_THRESHOLD_MIN;
                                 return (
                                     <OverlayView
                                         key={p.camper_id}
@@ -191,11 +207,20 @@ export default function CamperMapTab() {
                                             data-testid={`camper-pin-${p.camper_id}`}
                                         >
                                             <div
-                                                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white shadow-lg transition-transform group-hover:scale-110"
+                                                className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 shadow-lg transition-transform group-hover:scale-110 ${isStationary ? "border-rose-500 ring-2 ring-rose-300 animate-pulse" : "border-white"}`}
                                                 style={{ backgroundColor: color }}
                                             >
                                                 {initials}
                                             </div>
+                                            {isStationary && (
+                                                <div
+                                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 border-2 border-white flex items-center justify-center"
+                                                    title={`Stationary ${p.stationary_minutes} min`}
+                                                    data-testid={`stationary-badge-${p.camper_id}`}
+                                                >
+                                                    <AlertTriangle className="w-2 h-2 text-white" />
+                                                </div>
+                                            )}
                                             <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white border" style={{ borderColor: color }} />
                                         </button>
                                     </OverlayView>
@@ -223,10 +248,11 @@ export default function CamperMapTab() {
                             {visible.map((p) => {
                                 const color = groupColor(p.group_code);
                                 const isSel = selected?.camper_id === p.camper_id;
+                                const isStationary = Number(p.stationary_minutes || 0) >= STATIONARY_THRESHOLD_MIN;
                                 return (
                                     <li
                                         key={p.camper_id}
-                                        className={`flex items-center gap-3 p-2 rounded-2xl cursor-pointer transition-colors ${isSel ? "bg-river-50 ring-1 ring-river-300" : "hover:bg-slate-50"}`}
+                                        className={`flex items-center gap-3 p-2 rounded-2xl cursor-pointer transition-colors ${isSel ? "bg-river-50 ring-1 ring-river-300" : isStationary ? "bg-rose-50 hover:bg-rose-100" : "hover:bg-slate-50"}`}
                                         onClick={() => {
                                             setSelected(p);
                                             mapRef.current?.panTo({ lat: p.latitude, lng: p.longitude });
@@ -234,14 +260,23 @@ export default function CamperMapTab() {
                                         data-testid={`camper-row-${p.camper_id}`}
                                     >
                                         <div
-                                            className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white text-xs font-bold border-2 border-white shadow"
+                                            className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white text-xs font-bold border-2 shadow ${isStationary ? "border-rose-400 ring-2 ring-rose-200" : "border-white"}`}
                                             style={{ backgroundColor: color }}
                                         >
                                             {(p.first_name?.[0] || "?")}{p.last_name?.[0] || ""}
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <div className="text-sm font-bold text-slate-900 truncate">
+                                            <div className="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5">
                                                 {p.first_name} {p.last_name}
+                                                {isStationary && (
+                                                    <span
+                                                        className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5"
+                                                        data-testid={`stationary-row-badge-${p.camper_id}`}
+                                                    >
+                                                        <AlertTriangle className="w-2.5 h-2.5" />
+                                                        {p.stationary_minutes}m
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="text-xs text-slate-500 truncate">
                                                 Group {p.group_code} · {fmtAge(p.updated_at)}

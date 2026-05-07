@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 22 — ItemPicker (AR) + Bulk-Grant (Wallet) + Stationary Kid Badge (Live Map). BACKEND: 13/13 PASS in /app/backend/tests/test_iteration22.py covering /inventory shape + auth, /inventory/use razz_berry consume + 400-when-empty, /inventory/use lucky_egg stacking (verified second_until > first_until), /admin/wallet/bulk-grant validation matrix (empty group→400, unknown group→404, |amount|>1000→400, amount=0→400, happy path returns campers_updated * amount, negative deduction works), /camper/position last_movement_at refresh on >=8m only (verified with 22s throttle wait + 0.0001 deg lat shift ≈ 11m), GET /admin/camper-positions returns last_movement_at + stationary_minutes ints + falls back to updated_at for legacy rows missing last_movement_at, regression on /spawn/flee + razz_berry_pending plumbing. FRONTEND: Admin Wallet → 'Grant to a group' button (data-testid='bulk-grant-open-btn') opens dialog with bulk-grant-dialog + bulk-grant-group-select + bulk-grant-amount-input + bulk-grant-reason-input + bulk-grant-submit-btn — all 5 selectors verified present and visible. Admin Live Map (Live Map tab) → stationary-alert-pill shows 'X camper(s) hasn't moved in 15+ min', 1 stationary-row-badge-{camper_id} rendered for Colton Ahern (25M). Default max_age_min=30 filters out 21 of the 22 DB-seeded stationary rows because their updated_at is older than 30m — that's correct behavior. AR ItemPicker verified via code review only (geolocation/spawn gating prevents iframe E2E): ItemPicker.jsx renders null when totalItems==0 && !buffActive (line 38); ar-item-picker-btn/modal/close/use-razz/use-lucky testids all present; busy + disabled gating correct (line 99,112); razz_berry_pending disables ar-use-razz to prevent double-prime; lucky stacking allowed even when active. ARPage.jsx mounts <ItemPicker onConsume={refreshInventory}/> in top-right action row (line 421); razz-primed-chip + lucky-active-chip render in spawn info card when buffs active (lines 465, 473).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/wallet/bulk-grant", "issue": "Per-camper adjust_balls call is wrapped in try/except that silently swallows ALL exceptions (line 4237-4239). If MongoDB hiccups partway through a 20-camper grant, only N succeed and the response says 'campers_updated=N' with no surfaced error to the director. Recommend logging the swallowed exception and/or returning a 'failed_campers' count in the response."},
+      {"endpoint": "POST /api/admin/wallet/bulk-grant", "issue": "Loop performs N sequential adjust_balls calls — for a group of 20 campers this is ~20 round-trip awaits. Acceptable for current group sizes (≤20) but consider asyncio.gather() for ≥50."},
+      {"endpoint": "POST /api/camper/position", "issue": "When throttling write (dt<20 AND dist_m<5) the function returns saved=false and never updates last_movement_at — by design — but the 5m vs 8m thresholds are intentional asymmetry (write-throttle vs movement-detect). Slightly confusing; consider doc-string note that 5m<dist<8m positions DO get persisted but DO NOT refresh last_movement_at."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Live Map", "issues": ["Default 'Show last (min)' filter = 30 means stationary kids who pinged >30 minutes ago disappear from the list entirely — exactly the campers most worth flagging. Stationary alert pill cannot include them. Consider raising default to 60 or 120, or having the stationary-alert-pill scan a separate, looser query."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22.py",
+    "/app/test_reports/pytest/iteration22_results.xml"
+  ],
+  "action_items": [
+    "BACKEND MINOR: In bulk-grant loop (server.py ~4237), log the swallowed exception so silent failures are visible; optionally return a failed_campers count in the response.",
+    "FRONTEND DESIGN: Consider raising the default Live Map max_age_min from 30 → 60+ so the stationary-alert-pill catches the long-stationary-kid case it was designed for.",
+    "(OPTIONAL) Document the 5m write-throttle vs 8m movement-detect asymmetry in /camper/position — both are intentional but adjacent thresholds confuse readers."
+  ],
+  "critical_code_review_comments": [
+    "server.py /admin/wallet/bulk-grant (4212): clean Pydantic model, validation order is good (empty→400 before zero-amount→400, range check before group lookup). Group lookup uses {group_code: req.group_code} — case-sensitive; matches existing /groups behavior. GOOD.",
+    "server.py /camper/position (2304): correct asymmetric thresholds — write-throttle uses 5m+20s, but stationary detection uses STATIONARY_MOVE_M=8m. prior_movement_iso preserved when dist<8m which is exactly what the spec requires. GOOD.",
+    "server.py /admin/camper-positions (2367): legacy fallback `p.get('last_movement_at') or p.get('updated_at')` — verified to work via TestPositionStationary::test_admin_camper_positions_legacy_fallback. stationary_minutes returned as int via int(...) — GOOD.",
+    "ARPage.jsx (line 421): <ItemPicker onConsume={refreshInventory}/> mount inside the top-right action row. refreshInventory triggers parent re-render so razz-primed-chip / lucky-active-chip update immediately on consume. GOOD.",
+    "ItemPicker.jsx (line 38): early-return-null when totalItems==0 AND !buffActive — matches spec's 'only renders if camper has items or active buffs'. The 15-second polling interval (line 30) keeps it self-healing if buff expires while modal is open. GOOD.",
+    "ItemPicker.jsx (line 99): ar-use-razz disabled while buffs.razz_berry_pending — prevents wasting a second berry on the same throw. CORRECT.",
+    "ItemPicker.jsx (line 112): ar-use-lucky NOT disabled when lucky_egg_active — allows stacking. Matches backend stacking semantics. GOOD.",
+    "WalletTab.jsx bulk-grant dialog: all 5 testids present (open-btn, dialog, group-select, amount-input, reason-input, submit-btn). Submit is gated on group selection (verified visually — 'Grant +10 to each' is greyed out before group pick).",
+    "CamperMapTab.jsx (line 110): stationary-alert-pill renders only when stationaryCount>0 — won't visual-clutter the page when all kids are moving. Pill text correctly singular/plural. STATIONARY_THRESHOLD_MIN=15 hardcoded — consider env var if camp wants tunable.",
+    "DRY note: bulk-grant and per-camper /grant endpoints share 60% of validation logic (zero-check, range-check, adjust_balls call). Tolerable at ~2 callsites but a private _validated_grant() helper would reduce drift risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22.py (new — 13 tests)",
+    "/app/test_reports/pytest/iteration22_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "Wallet bulk-grant: PASS (5/5 testids visible). Live Map stationary pill + row badge: PASS (1/1 visible within 30-min default window). AR ItemPicker: code-reviewed — all selectors + render logic correct; not E2E-tested due to geolocation gating."},
+  "test_credentials": "Admin: admin / Camp1993. Camper login via POST /api/camper/login {camper_id} with id from /api/groups/B01/campers (no password — id-only login).",
+  "seed_data_creation": "test_iteration22.py uses motor directly to seed/reset camper_inventory and camper_positions docs (razz_berry/lucky_egg counts, razz_berry_pending flag, legacy position row missing last_movement_at). All TEST_-prefixed rows are cleaned up in their own test bodies.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter_22 ships 1 new endpoint (POST /admin/wallet/bulk-grant) + adds last_movement_at + stationary_minutes to /camper/position and /admin/camper-positions. ItemPicker is a pre-existing component — iter_22 only mounts it in ARPage. Tests use motor + MONGO_URL/DB_NAME from backend env to seed inventory state. The /camper/position endpoint is throttled — must wait >20s between same-camper writes or use distinct coords. Live Map default max_age_min=30 filters out the 22 historical stationary positions from /api/admin/camper-positions; raise to 240 if you need to see them all.",
+  "rca of the issue": "No issues blocking merge. Two minor backend improvements (bulk-grant exception logging + bulk-grant gather concurrency) and one frontend default-filter UX suggestion (Live Map default min) noted in action_items."
+}
