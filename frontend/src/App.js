@@ -56,7 +56,7 @@ export default function App() {
                                 <Route path="/admin/*" element={<AdminRoute><AdminPage /></AdminRoute>} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Routes>
-                            <Toaster position="top-center" richColors />
+                            <Toaster position="top-center" richColors offset={64} closeButton />
                         </BrowserRouter>
                     </GoogleMapsProvider>
                 </AdminAuthProvider>

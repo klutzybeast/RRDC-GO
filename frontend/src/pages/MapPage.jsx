@@ -184,7 +184,11 @@ export default function MapPage() {
             if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
         } catch (e) {
             const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
-            toast.error(msg);
+            const status = e?.response?.status;
+            // Cooldown (429) is already communicated by the badge label
+            // ("Ready in 1m23s"). No need to spam an error toast for the
+            // expected case. Only surface other failures (404, 500, etc.).
+            if (status !== 429) toast.error(msg);
         }
     }, [refreshPokestopStatus, refreshWallet, myLocation, pokestopEngageM]);
 
