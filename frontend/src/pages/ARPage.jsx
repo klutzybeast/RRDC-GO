@@ -10,7 +10,6 @@ import RiverBall from "../components/RiverBall";
 import CampBall from "../components/CampBall";
 import BallSwitcher from "../components/BallSwitcher";
 import BallWobbleSequence from "../components/BallWobbleSequence";
-import ThrowRings from "../components/ThrowRings";
 import ItemPicker from "../components/ItemPicker";
 import TypeBadge from "../components/TypeBadge";
 import ARFallbackScene from "../components/ARFallbackScene";
@@ -92,7 +91,6 @@ export default function ARPage() {
     const [wobble, setWobble] = useState(null); // { stages, success, ballId, pendingResult }
     const [flash, setFlash] = useState("");
     const [throwBanner, setThrowBanner] = useState(null); // { quality, curveball }
-    const ringRef = useRef(null);
     const touchPathRef = useRef([]); // {x,y,t}
     const [ambient, setAmbient] = useState(null);
     const [selectedBall, setSelectedBall] = useState("pokeball");
@@ -236,8 +234,10 @@ export default function ARPage() {
             setShowOutOfBalls(true);
             return;
         }
-        // Sample throw quality from the rings (frame-accurate at the moment of release)
-        const quality = ringRef.current ? ringRef.current.sample() : null;
+        // Throw quality (NICE/GREAT/EXCELLENT) is no longer sampled — the
+        // visible rings were removed from the catch screen so giving a hidden
+        // bonus would feel arbitrary. Throws are pure ball-type + curveball.
+        const quality = null;
         // Detect curveball from the captured touch path: if total path is at
         // least 1.3x the straight-line distance AND has > 2 direction changes,
         // it's a curveball. Tap-throws (no path) → false.
@@ -403,7 +403,6 @@ export default function ARPage() {
             )}
 
             {spawn && !wobble && <PokemonOverlay imageUrl={spawn.pokemon.image_data_url || null} rarity={spawn.pokemon.rarity} />}
-            {spawn && !wobble && !showBallAnim && <ThrowRings ref={ringRef} active size={240} />}
 
             {/* UI overlay */}
             <div className="ar-ui">
