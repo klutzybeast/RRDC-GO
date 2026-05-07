@@ -17,7 +17,6 @@ import SupervisorChallenge from "../components/SupervisorChallenge";
 import ChallengesCard from "../components/ChallengesCard";
 import NearbyPanel from "../components/NearbyPanel";
 import Minimap from "../components/Minimap";
-import RustlingGrass from "../components/RustlingGrass";
 import ActiveEventBanner from "../components/ActiveEventBanner";
 import BuddyStrip from "../components/BuddyStrip";
 import GroupCampersOverlay from "../components/GroupCampersOverlay";
@@ -135,8 +134,8 @@ export default function MapPage() {
         };
     }, [refreshStreak]);
 
-    // Periodic re-render so per-marker spawn-age transitions (rustling → reveal)
-    // happen smoothly without waiting for the 4s poll.
+    // Light periodic re-render so the pokestop cooldown labels tick down
+    // visually between server polls without showing stale "Ready in 0s".
     const [, _setTick] = useState(0);
     useEffect(() => {
         const t = setInterval(() => _setTick((n) => (n + 1) % 1000), 1500);
@@ -538,11 +537,6 @@ export default function MapPage() {
                         const dist = s._distance_m;
                         const inRange = dist != null && dist <= catchRadius;
                         const glow = rarityGlow[s.pokemon.rarity] || rarityGlow.common;
-                        // Rustling-grass for the first 10s of a spawn's life — hints at
-                        // an arrival before the Pokemon "pops in" with appear animation.
-                        const startedAt = s.started_at ? new Date(s.started_at).getTime() : 0;
-                        const ageMs = startedAt ? Date.now() - startedAt : 999999;
-                        const isRustling = ageMs >= 0 && ageMs < 10000;
                         // Pokemon-GO style: scale down faraway markers, pulse the close ones.
                         let scale = 1.0;
                         let opacity = 1.0;
@@ -552,24 +546,9 @@ export default function MapPage() {
                             else if (dist > 20) { scale = 1.0; opacity = 1.0; }
                             else { scale = 1.1; opacity = 1.0; }
                         }
-                        // Per-rarity ring color (sits OUTSIDE the radial halo for that
-                        // unmistakable "this is rare" silhouette ring).
-                        const ringColor = {
-                            common: "rgba(148,163,184,0.55)",
-                            uncommon: "rgba(34,197,94,0.7)",
-                            rare: "rgba(59,130,246,0.8)",
-                            legendary: "rgba(251,191,36,0.95)",
-                        }[s.pokemon.rarity] || "rgba(148,163,184,0.55)";
-                        const ringPulse = {
-                            common: { duration: 2.4, scale: [1, 1.06, 1] },
-                            uncommon: { duration: 2.0, scale: [1, 1.10, 1] },
-                            rare: { duration: 1.6, scale: [1, 1.14, 1] },
-                            legendary: { duration: 1.2, scale: [1, 1.20, 1] },
-                        }[s.pokemon.rarity] || { duration: 2.4, scale: [1, 1.06, 1] };
-                        // Stagger start times so adjacent markers don't bob in lock-step
+                        // Stagger bob start times so adjacent markers don't bob in lock-step
                         const seed = (s.spawn_id || "").split("").reduce((n, c) => n + c.charCodeAt(0), 0);
                         const bobDelay = (seed % 100) / 100;
-                        const ringDelay = (seed % 73) / 73;
                         return (
                             <OverlayView
                                 key={s.spawn_id}
@@ -584,30 +563,14 @@ export default function MapPage() {
                                     transition={{ type: "spring", stiffness: 120, damping: 18 }}
                                     data-testid="spawn-marker"
                                 >
-                                    {isRustling ? (
-                                        <div className="relative w-24 h-24">
-                                            <RustlingGrass size={92} />
-                                        </div>
-                                    ) : (
-                                    <>
-                                    {/* Rarity pulse ring — sits beneath the bob animation */}
-                                    <motion.div
-                                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
-                                        style={{
-                                            width: "108%",
-                                            height: "108%",
-                                            border: `3px solid ${ringColor}`,
-                                            boxShadow: `0 0 18px ${ringColor}`,
-                                        }}
-                                        animate={{ scale: ringPulse.scale, opacity: [0.55, 0.95, 0.55] }}
-                                        transition={{ repeat: Infinity, duration: ringPulse.duration, ease: "easeInOut", delay: ringDelay }}
-                                    />
                                     <motion.div
                                         animate={{ y: [0, -8, 0], rotate: [-3, 3, -3] }}
                                         transition={{ repeat: Infinity, duration: 1.6 + bobDelay * 0.8, ease: "easeInOut", delay: bobDelay }}
                                         className="relative w-24 h-24 flex items-center justify-center"
                                     >
-                                        {/* Soft radial glow behind the transparent PNG — no solid box, no white border */}
+                                        {/* Subtle radial halo behind the transparent PNG — keeps the Pokémon
+                                            popping off the map without drawing a hard ring of color. Legendaries
+                                            still get an extra animated glow because they should feel rare. */}
                                         <div
                                             className="absolute inset-0 rounded-full blur-2xl"
                                             style={{ background: `radial-gradient(circle, ${glow} 0%, transparent 70%)` }}
@@ -636,8 +599,6 @@ export default function MapPage() {
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full whitespace-nowrap">
                                             {Math.round(dist)} m
                                         </div>
-                                    )}
-                                    </>
                                     )}
                                 </motion.div>
                             </OverlayView>
