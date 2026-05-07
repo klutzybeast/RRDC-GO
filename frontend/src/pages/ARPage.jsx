@@ -31,7 +31,7 @@ function useCamera(videoRef, enabled) {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setStatus("unavailable");
             setErr("Camera not supported on this browser");
-            return;
+            return false;
         }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -44,9 +44,11 @@ function useCamera(videoRef, enabled) {
                 await videoRef.current.play().catch(() => {});
             }
             setStatus("running");
+            return true;
         } catch (e) {
             setErr(e?.message || "Camera access denied");
             setStatus(e?.name === "NotAllowedError" ? "denied" : "error");
+            return false;
         }
     }, [videoRef]);
 
@@ -91,6 +93,16 @@ export default function ARPage() {
         try { localStorage.setItem("rrdc:cameraOn", next ? "1" : "0"); } catch { /* noop */ }
     }, [cameraOn]);
     const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef, cameraOn);
+
+    // If iOS denies the prompt (or the browser doesn't support camera at all),
+    // remember that so we don't try to start it again on the next AR visit.
+    // The user can re-enable manually with the camera toggle button.
+    useEffect(() => {
+        if (camStatus === "denied" || camStatus === "unavailable") {
+            try { localStorage.setItem("rrdc:cameraOn", "0"); } catch { /* noop */ }
+            setCameraOnRaw(false);
+        }
+    }, [camStatus]);
 
     const [spawn, setSpawn] = useState(null);
     const [activeSpawnId, setActiveSpawnId] = useState(targetSpawnId || null);
@@ -448,47 +460,36 @@ export default function ARPage() {
                     </div>
                 </div>
 
-                {/* Spawn info — slim corner badge so it never blocks the Pokemon target.
-                    Buff chips (razz/lucky) are pinned just below the back button, also corner-aligned. */}
-                {spawn && (
+                {/* Active buffs (razz/lucky) — top-right corner only. NO Pokemon
+                    name, rarity, or type badge on the catch screen — keeps the
+                    Pokemon image fully visible and uncluttered. */}
+                {spawn && (razzPrimed || luckyActive) && (
                     <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="absolute top-20 left-4 right-4 flex items-start justify-between gap-2 pointer-events-none"
+                        className="absolute top-20 right-4 flex items-center gap-1.5 flex-wrap pointer-events-none"
+                        data-testid="ar-active-buffs"
                     >
-                        <div className="glass-dark rounded-xl px-3 py-1.5 inline-flex items-center gap-2">
-                            <RarityBadge rarity={spawn.pokemon.rarity} className="text-[10px] px-2 py-0" />
-                            {spawn.pokemon.type && spawn.pokemon.type !== "normal" && (
-                                <TypeBadge type={spawn.pokemon.type} size="sm" />
-                            )}
-                            {missCount > 0 && (
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-300">misses {missCount}</span>
-                            )}
-                        </div>
-                        {(razzPrimed || luckyActive) && (
-                            <div className="flex items-center gap-1.5 flex-wrap" data-testid="ar-active-buffs">
-                                {razzPrimed && (
-                                    <span
-                                        className="px-2 py-1 rounded-full bg-rose-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-rose-200/50 animate-pulse"
-                                        data-testid="razz-primed-chip"
-                                    >
-                                        🍓 +30%
-                                    </span>
-                                )}
-                                {luckyActive && (
-                                    <span
-                                        className="px-2 py-1 rounded-full bg-amber-400/95 text-amber-950 text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-amber-200/60"
-                                        data-testid="lucky-active-chip"
-                                    >
-                                        🥚 2× balls
-                                    </span>
-                                )}
-                            </div>
+                        {razzPrimed && (
+                            <span
+                                className="px-2 py-1 rounded-full bg-rose-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-rose-200/50 animate-pulse"
+                                data-testid="razz-primed-chip"
+                            >
+                                🍓 +30%
+                            </span>
                         )}
-                        {/* Hidden test hook — keeps existing automated tests passing. */}
-                        <span className="sr-only" data-testid="active-spawn-name">{spawn.pokemon.name}</span>
+                        {luckyActive && (
+                            <span
+                                className="px-2 py-1 rounded-full bg-amber-400/95 text-amber-950 text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-amber-200/60"
+                                data-testid="lucky-active-chip"
+                            >
+                                🥚 2× balls
+                            </span>
+                        )}
                     </motion.div>
                 )}
+                {/* Hidden test hook — keeps existing automated tests passing. */}
+                {spawn && <span className="sr-only" data-testid="active-spawn-name">{spawn.pokemon.name}</span>}
 
                 {/* Bottom area: ball selector + throw ball */}
                 <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-3 select-none">

@@ -87,7 +87,7 @@ export default function MapPage() {
     };
 
     // Wallet
-    const { wallet, refresh: refreshWallet, claimDaily, claimPin } = useWallet(true);
+    const { wallet, refresh: refreshWallet, claimDaily } = useWallet(true);
     const [ballDelta, setBallDelta] = useState(null);
     const [showOutOfBalls, setShowOutOfBalls] = useState(false);
     const flashDelta = (d) => {
@@ -159,23 +159,21 @@ export default function MapPage() {
     }, [refreshPokestopStatus]);
 
     const spinPokestop = React.useCallback(async (pin) => {
-        // Client-side proximity guard — gives instant feedback without a server roundtrip.
-        // The backend re-checks too, so this is purely UX.
+        // Client-side proximity guard — silently bail if too far. The badge
+        // is already greyed out so the kid sees they need to walk closer; an
+        // error toast on top would be redundant noise.
         if (myLocation) {
             const dist = metersBetween({ lat: myLocation.lat, lng: myLocation.lng }, { lat: pin.latitude, lng: pin.longitude });
-            if (isFinite(dist) && dist > pokestopEngageM) {
-                const feet = Math.round(dist * 3.281);
-                const needFt = Math.round(pokestopEngageM * 3.281);
-                toast.error(`Walk closer — ${feet} ft away (need to be within ${needFt} ft)`);
-                return;
-            }
+            // 1.3× buffer matches the backend's GPS-jitter forgiveness so the
+            // client guard doesn't reject taps the server would have allowed.
+            if (isFinite(dist) && dist > pokestopEngageM * 1.3) return;
         }
         try {
             const r = await userApi.post(`/pin/spin/${pin.id}`);
             const balls = r.data.balls || 0;
             const items = r.data.items || {};
             const itemsTxt = Object.entries(items).map(([k, n]) => `+${n} ${k.replace("_", " ")}`).join(", ");
-            toast.success(`📍 ${pin.name}: +${balls} balls${itemsTxt ? " · " + itemsTxt : ""}`);
+            toast.success(`${pin.name}: +${balls} balls${itemsTxt ? " · " + itemsTxt : ""}`);
             flashDelta(balls);
             refreshWallet();
             refreshPokestopStatus();
@@ -183,17 +181,16 @@ export default function MapPage() {
             sfx.pokestopSpin();
             if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
         } catch (e) {
+            // Cooldown / out-of-range / stale-GPS are already communicated
+            // visually by the pokéstop badge — silent fail. Only surface
+            // genuine unexpected errors (404, 5xx, network).
             const status = e?.response?.status;
-            // Cooldown (429), out-of-range (403), and stale-GPS (409) are
-            // already communicated visually by the pokéstop badge state
-            // (greyed out / cooldown countdown). Don't spam an error toast
-            // for those — it's just noise. Only surface unexpected failures.
-            if (status !== 429 && status !== 403 && status !== 409) {
+            if (status && status !== 429 && status !== 403 && status !== 409) {
                 const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
                 toast.error(msg);
             }
         }
-    }, [refreshPokestopStatus, refreshWallet, myLocation, pokestopEngageM]);
+    }, [refreshPokestopStatus, refreshWallet, refreshInventory, myLocation, pokestopEngageM]);
 
     // Auto-claim daily bonus on mount
     useEffect(() => {
@@ -208,29 +205,9 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [wallet?.can_claim_daily]);
 
-    // Auto-claim nearby pin (within ~12m) once per pin per 12h client-side
-    const pinClaimsRef = useRef({}); // {pinId: timestamp}
-    useEffect(() => {
-        if (!myLocation || pins.length === 0) return;
-        for (const p of pins) {
-            if (!p.active) continue;
-            const last = pinClaimsRef.current[p.id];
-            if (last && Date.now() - last < 12 * 60 * 60 * 1000) continue;
-            const dlat = (myLocation.lat - p.latitude) * 111111;
-            const dlng = (myLocation.lng - p.longitude) * 111111 * Math.cos((myLocation.lat * Math.PI) / 180);
-            const dist = Math.sqrt(dlat * dlat + dlng * dlng);
-            if (dist <= 12) {
-                pinClaimsRef.current[p.id] = Date.now();
-                claimPin(p.id).then((r) => {
-                    if (r.ok) {
-                        toast.success(`📍 ${r.pin_name}: +${r.granted} balls`);
-                        flashDelta(r.granted);
-                    }
-                });
-                break; // one at a time
-            }
-        }
-    }, [myLocation, pins, claimPin]);
+    // (Removed) Legacy 12m auto-claim of `/wallet/claim-pin` — replaced by
+    // the tap-to-spin pokéstop badges (PokestopMarker). Keeping both was
+    // double-counting attempts and surfacing duplicate toasts.
 
     // Poll spawns — pass camper GPS when available so spawns appear near them.
     // Backend returns a LIST of active spawns (4-6 at a time w/ mixed rarities).
