@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
+const RR_LOGO_URL = "https://customer-assets.emergentagent.com/job_river-catch-1/artifacts/l5f6pokq_rr%20logo.png";
+
 /**
- * Pokéstop marker rendered via Google Maps OverlayView.
+ * Pokéstop marker — Rolling River branded badge rendered via Google Maps OverlayView.
  *
  * Visual states:
- *   READY + IN-RANGE   → glowing cyan cube spinning on a beam, gold "TAP" pulse
- *   READY + OUT-OF-RANGE → desaturated cube + "Walk closer" pill with feet remaining
- *   COOLDOWN           → grey cube, lid-half open, "Ready in 1m23s" pill
+ *   READY + IN-RANGE   → vivid royal-blue badge, pulsing halo, white "TAP TO SPIN!" pill
+ *   READY + OUT-OF-RANGE → faded royal-blue badge, "X ft · walk closer" pill
+ *   COOLDOWN           → desaturated grey badge, "Ready in 1m23s" pill (live tick)
  *
  * Props:
- *   name            string — the pin name (e.g. "Dining Hall")
+ *   name            string — pin name (e.g. "Dining Hall")
  *   ready           bool   — backend says no cooldown active
  *   nextReadyAtIso  string — ISO datetime when cooldown ends (when !ready)
  *   distanceM       number — meters from camper to pin (null if no GPS yet)
@@ -46,15 +48,31 @@ export default function PokestopMarker({
         }
     }
 
-    // Cube + halo colors per state
-    const palette = tappable
-        ? { core: "#22d3ee", edge: "#0e7490", glow: "rgba(34,211,238,0.55)", beam: "linear-gradient(180deg, rgba(34,211,238,0.0), rgba(34,211,238,0.55) 50%, rgba(34,211,238,0.85))" }
-        : !ready
-        ? { core: "#94a3b8", edge: "#475569", glow: "rgba(148,163,184,0.35)", beam: "linear-gradient(180deg, rgba(148,163,184,0.0), rgba(148,163,184,0.4))" }
-        : { core: "#7dd3fc", edge: "#0369a1", glow: "rgba(125,211,252,0.35)", beam: "linear-gradient(180deg, rgba(125,211,252,0.0), rgba(125,211,252,0.35))" };
-
     const distFeet = distanceM != null ? Math.round(distanceM * 3.281) : null;
     const engageFeet = Math.round(engageM * 3.281);
+
+    // Royal blue palette — Rolling River brand color: #1d4ed8 (blue-700)
+    const ROYAL_DEEP = "#1d4ed8";
+    const ROYAL_BRIGHT = "#2563eb";
+
+    // Per-state visual treatment for the badge body
+    const badgeStyle = tappable
+        ? {
+            background: `radial-gradient(circle at 32% 28%, #60a5fa 0%, ${ROYAL_BRIGHT} 55%, ${ROYAL_DEEP} 100%)`,
+            boxShadow: `0 0 22px 6px rgba(37,99,235,0.55), 0 4px 14px rgba(0,0,0,0.35), inset 0 0 0 3px #ffffff, inset 0 -6px 12px rgba(0,0,0,0.25)`,
+            filter: "saturate(1.15)",
+        }
+        : !ready
+        ? {
+            background: `radial-gradient(circle at 32% 28%, #94a3b8 0%, #64748b 55%, #475569 100%)`,
+            boxShadow: `0 3px 10px rgba(0,0,0,0.3), inset 0 0 0 3px rgba(255,255,255,0.65), inset 0 -6px 12px rgba(0,0,0,0.25)`,
+            filter: "saturate(0.4) brightness(0.85)",
+        }
+        : {
+            background: `radial-gradient(circle at 32% 28%, #93c5fd 0%, ${ROYAL_BRIGHT} 55%, ${ROYAL_DEEP} 100%)`,
+            boxShadow: `0 0 12px 2px rgba(37,99,235,0.3), 0 3px 10px rgba(0,0,0,0.3), inset 0 0 0 3px #ffffff, inset 0 -6px 12px rgba(0,0,0,0.25)`,
+            filter: "saturate(0.85) brightness(0.92)",
+        };
 
     return (
         <div
@@ -62,135 +80,139 @@ export default function PokestopMarker({
             style={{ pointerEvents: "auto" }}
             data-testid={`pokestop-marker-${tappable ? "tappable" : ready ? "out-of-range" : "cooldown"}`}
         >
-            {/* Beam of light from the ground up to the cube */}
-            <div
-                className="absolute left-1/2 -translate-x-1/2"
-                style={{
-                    bottom: 0,
-                    width: 14,
-                    height: 64,
-                    background: palette.beam,
-                    filter: "blur(2px)",
-                    opacity: tappable ? 1 : 0.7,
-                }}
-            />
-
-            {/* Pulsing ground halo */}
+            {/* Pulsing ground halo — only when tappable */}
             {tappable && (
                 <motion.div
                     className="absolute left-1/2 rounded-full"
                     style={{
-                        bottom: -6,
-                        width: 56,
-                        height: 18,
+                        bottom: -8,
+                        width: 70,
+                        height: 22,
                         translateX: "-50%",
-                        background: "radial-gradient(ellipse at center, rgba(34,211,238,0.65), rgba(34,211,238,0) 70%)",
+                        background: "radial-gradient(ellipse at center, rgba(37,99,235,0.7), rgba(37,99,235,0) 70%)",
                     }}
-                    animate={{ scale: [1, 1.35, 1], opacity: [0.9, 0.5, 0.9] }}
-                    transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+                    animate={{ scale: [1, 1.4, 1], opacity: [0.85, 0.45, 0.85] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
                 />
             )}
 
-            {/* The cube — rotates when ready+in-range, slow when ready+far, frozen on cooldown */}
-            <motion.div
+            {/* Pin name above the badge */}
+            <div
+                className="absolute left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-slate-900/80 text-white text-[9px] font-bold uppercase tracking-wider whitespace-nowrap shadow"
+                style={{ top: -10, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis" }}
+                data-testid="pokestop-name-label"
+            >
+                {name || "Pokéstop"}
+            </div>
+
+            {/* The royal-blue circular badge */}
+            <motion.button
                 onClick={(e) => {
                     e.stopPropagation();
                     if (tappable && onSpin) onSpin();
                 }}
-                className="relative mx-auto cursor-pointer"
+                disabled={!tappable}
+                className="relative mx-auto block rounded-full"
                 style={{
-                    width: 38,
-                    height: 38,
-                    marginBottom: 60,
+                    width: 56,
+                    height: 56,
+                    marginBottom: 38,
                     cursor: tappable ? "pointer" : "not-allowed",
+                    border: "none",
+                    padding: 0,
+                    ...badgeStyle,
                 }}
-                animate={tappable ? { rotateY: [0, 360] } : !ready ? { rotateY: 0 } : { rotateY: [0, 60, 0] }}
-                transition={tappable ? { duration: 2.4, repeat: Infinity, ease: "linear" } : !ready ? {} : { duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                whileTap={tappable ? { scale: 0.85 } : {}}
-                data-testid={`pokestop-cube${tappable ? "-tappable" : ""}`}
+                animate={tappable ? { y: [0, -3, 0] } : {}}
+                transition={tappable ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : {}}
+                whileTap={tappable ? { scale: 0.88 } : {}}
+                data-testid={`pokestop-badge${tappable ? "-tappable" : ""}`}
             >
-                {/* Cube faces — simulated with stacked layers for a 2.5D feel */}
+                {/* Logo inside a white inset disc so the multicolor logo is readable on blue */}
                 <div
-                    className="absolute inset-0 rounded-md"
+                    className="absolute inset-1.5 rounded-full bg-white flex items-center justify-center overflow-hidden"
+                    style={{ boxShadow: "inset 0 1px 3px rgba(0,0,0,0.15)" }}
+                >
+                    <img
+                        src={RR_LOGO_URL}
+                        alt=""
+                        draggable={false}
+                        style={{
+                            width: "92%",
+                            height: "92%",
+                            objectFit: "contain",
+                            filter: !ready ? "grayscale(0.7) opacity(0.7)" : tappable ? "none" : "saturate(0.8)",
+                        }}
+                    />
+                </div>
+
+                {/* Top sheen highlight for that polished badge look */}
+                <div
+                    className="absolute rounded-full pointer-events-none"
                     style={{
-                        background: `linear-gradient(135deg, ${palette.core} 0%, ${palette.edge} 100%)`,
-                        boxShadow: `0 0 18px 4px ${palette.glow}, inset 0 0 0 2px rgba(255,255,255,0.45), inset 0 -8px 0 rgba(0,0,0,0.18)`,
-                        transform: "rotate(45deg)",
-                        filter: tappable ? "saturate(1.2)" : "saturate(0.55) brightness(0.85)",
+                        top: 4,
+                        left: 9,
+                        width: 18,
+                        height: 8,
+                        background: "linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0))",
+                        filter: "blur(1px)",
                     }}
                 />
-                {/* Inner gem cross */}
-                <div
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                    style={{ transform: "rotate(45deg)" }}
-                >
-                    <div className="w-1.5 h-5 bg-white/85 rounded-full" />
-                    <div className="absolute w-5 h-1.5 bg-white/85 rounded-full" />
-                </div>
-                {/* Sparkle dots — only when tappable */}
+
+                {/* Sparkles — only when tappable */}
                 {tappable && (
                     <>
                         <motion.div
-                            className="absolute w-1.5 h-1.5 rounded-full bg-white"
-                            style={{ left: -6, top: 8 }}
-                            animate={{ opacity: [0, 1, 0], scale: [0.6, 1.2, 0.6] }}
-                            transition={{ duration: 1.6, repeat: Infinity, delay: 0 }}
-                        />
-                        <motion.div
-                            className="absolute w-1 h-1 rounded-full bg-white"
-                            style={{ right: -4, top: 4 }}
-                            animate={{ opacity: [0, 1, 0], scale: [0.6, 1.4, 0.6] }}
-                            transition={{ duration: 1.6, repeat: Infinity, delay: 0.5 }}
-                        />
-                        <motion.div
-                            className="absolute w-1 h-1 rounded-full bg-white"
-                            style={{ left: 30, bottom: -2 }}
+                            className="absolute w-2 h-2 rounded-full bg-white"
+                            style={{ left: -4, top: 8, boxShadow: "0 0 6px 2px rgba(255,255,255,0.8)" }}
                             animate={{ opacity: [0, 1, 0], scale: [0.6, 1.3, 0.6] }}
-                            transition={{ duration: 1.6, repeat: Infinity, delay: 1.0 }}
+                            transition={{ duration: 1.4, repeat: Infinity, delay: 0 }}
+                        />
+                        <motion.div
+                            className="absolute w-1.5 h-1.5 rounded-full bg-white"
+                            style={{ right: -2, top: 4, boxShadow: "0 0 5px 2px rgba(255,255,255,0.8)" }}
+                            animate={{ opacity: [0, 1, 0], scale: [0.6, 1.4, 0.6] }}
+                            transition={{ duration: 1.4, repeat: Infinity, delay: 0.5 }}
+                        />
+                        <motion.div
+                            className="absolute w-1.5 h-1.5 rounded-full bg-amber-300"
+                            style={{ left: 46, bottom: 0, boxShadow: "0 0 5px 2px rgba(252,211,77,0.9)" }}
+                            animate={{ opacity: [0, 1, 0], scale: [0.6, 1.3, 0.6] }}
+                            transition={{ duration: 1.4, repeat: Infinity, delay: 0.9 }}
                         />
                     </>
                 )}
-            </motion.div>
+            </motion.button>
 
-            {/* State label pill — sits between cube and ground. Width-capped so adjacent stops don't overlap. */}
+            {/* State label pill — sits under the badge */}
             <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: -10 }}>
                 {tappable ? (
                     <motion.div
-                        animate={{ y: [0, -2, 0] }}
+                        animate={{ scale: [1, 1.06, 1] }}
                         transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                        className="px-2 py-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-black uppercase tracking-widest whitespace-nowrap shadow-md ring-1 ring-amber-200"
+                        className="px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-black uppercase tracking-widest whitespace-nowrap shadow-md ring-1 ring-amber-200"
                         data-testid="pokestop-tap-label"
                     >
                         Tap to spin!
                     </motion.div>
                 ) : !ready ? (
                     <div
-                        className="px-2 py-0.5 rounded-full bg-slate-700/90 text-white text-[10px] font-bold whitespace-nowrap shadow"
+                        className="px-2.5 py-0.5 rounded-full bg-slate-700/95 text-white text-[10px] font-bold whitespace-nowrap shadow"
                         data-testid="pokestop-cooldown-label"
                     >
                         {cooldownLabel ? `Ready in ${cooldownLabel}` : "Cooling down…"}
                     </div>
                 ) : distFeet != null ? (
                     <div
-                        className="px-2 py-0.5 rounded-full bg-white/95 text-slate-700 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200"
+                        className="px-2.5 py-0.5 rounded-full bg-white/95 text-slate-700 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200"
                         data-testid="pokestop-distance-label"
                     >
                         {distFeet} ft · walk closer ({engageFeet} ft)
                     </div>
                 ) : (
-                    <div className="px-2 py-0.5 rounded-full bg-white/95 text-slate-600 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200">
+                    <div className="px-2.5 py-0.5 rounded-full bg-white/95 text-slate-600 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200">
                         Locating…
                     </div>
                 )}
-            </div>
-
-            {/* Pin name - tiny text above the cube so kids see "Dining Hall" etc. */}
-            <div
-                className="absolute left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-slate-900/75 text-white text-[9px] font-bold uppercase tracking-wider whitespace-nowrap"
-                style={{ top: -8, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}
-                data-testid="pokestop-name-label"
-            >
-                {name || "Pokéstop"}
             </div>
         </div>
     );
