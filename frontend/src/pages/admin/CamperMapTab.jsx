@@ -39,7 +39,7 @@ const fmtAge = (iso) => {
 export default function CamperMapTab() {
     const { isLoaded, loadError } = useGoogleMaps();
     const [positions, setPositions] = useState([]);
-    const [maxAge, setMaxAge] = useState(30);
+    const [maxAge, setMaxAge] = useState(120);
     const [loading, setLoading] = useState(false);
     const [campCenter, setCampCenter] = useState({ lat: 40.6396, lng: -73.6665 });
     const [campZoom, setCampZoom] = useState(17);

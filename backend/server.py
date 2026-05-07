@@ -4230,16 +4230,20 @@ async def admin_bulk_grant_balls(req: BulkGrantReq, admin=Depends(get_current_ad
     reason = req.reason or "counselor_award"
     meta = {"admin": admin.get("username", "admin"), "bulk_group": group_code, "bulk_size": len(campers)}
     updated = 0
+    failed = 0
     for c in campers:
         try:
             await adjust_balls(c["id"], int(req.amount), reason, meta)
             updated += 1
-        except Exception:
-            # Don't let one bad wallet kill the whole bulk grant
-            pass
+        except Exception as e:
+            # Don't let one bad wallet kill the whole bulk grant — but DO log
+            # so directors / sentry can see partial-failure cases.
+            failed += 1
+            logger.warning("bulk_grant: failed for camper %s in %s: %s", c.get("id"), group_code, e)
     return {
         "group_code": group_code,
         "campers_updated": updated,
+        "campers_failed": failed,
         "amount_per_camper": int(req.amount),
         "total_balls_issued": int(req.amount) * updated,
     }

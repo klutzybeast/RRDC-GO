@@ -725,3 +725,48 @@ Result: every defeat returned 500 and granted nothing. Fixed both, plus:
 ### Files modified
 - `/app/backend/server.py` — `/friends/{camper_id}/bank` + `_bank_for` extraction.
 - `/app/frontend/src/pages/CollectionPage.jsx` — `ProposeTradeModal` component + entry button.
+
+
+
+## 2026-05-07 — Iteration 23 — Razz/Lucky AR consumer + Bulk-grant + Stationary kid badge
+
+Three pending items from the previous handoff, all shipped and tested.
+
+### Shipped ✅
+
+**AR ItemPicker (Razz Berry / Lucky Egg consumer)**
+- `ItemPicker.jsx` (already existed from previous turn) wired into `ARPage.jsx` top-right action row. Renders nothing if camper has no items AND no active buffs, so it doesn't clutter the throw screen.
+- Active-buff chips on the spawn info card: `razz-primed-chip` (rose, pulsing) + `lucky-active-chip` (amber). Both refresh after every catch attempt so they clear instantly when the backend consumes the razz_berry_pending flag.
+- Visual state dots on the picker button itself (rose=razz primed, amber=lucky active).
+- Polls `/api/inventory` every 15s plus right after every catch to stay in sync with backend buff expiry.
+
+**Admin Bulk-grant balls (Wallet tab)**
+- New backend endpoint `POST /api/admin/wallet/bulk-grant` `{group_code, amount, reason?}` — validates non-empty group, non-zero amount, |amount|<=1000, and that the group exists. Iterates per-camper `adjust_balls(...)` with bulk metadata. Returns `{campers_updated, campers_failed, amount_per_camper, total_balls_issued}`. Per-camper failures are logged but don't abort the batch.
+- Wallet tab now has an emerald "Grant to a group" button (`data-testid='bulk-grant-open-btn'`) opening a dialog with a group dropdown (showing camper count per group), amount stepper, and reason field. Live "Total issued: N balls across M campers" preview before submit.
+
+**Stationary Kid Badge (Live Map)**
+- `POST /api/camper/position` now persists a separate `last_movement_at` field that ONLY refreshes when the camper has actually moved >=8 m (vs. the existing 5m write-throttle threshold — intentional asymmetry to filter GPS jitter while still recording small drifts).
+- `GET /api/admin/camper-positions` returns `last_movement_at` + computed `stationary_minutes` per camper. Legacy rows missing `last_movement_at` fall back to `updated_at`.
+- `CamperMapTab.jsx` adds: pulsing rose ring + corner alert icon on stationary pins, "Stationary Xm" pill on stationary list rows, and a top-of-page red `stationary-alert-pill` showing the count of campers stationary >=15 min in the current view.
+- Default "Show last (min)" filter raised from 30 → 120 so the stationary alert actually surfaces long-stationary kids (testing-agent UX feedback).
+
+### Test pass: iteration_22.json — 13/13 backend, frontend Wallet bulk-grant + Live Map stationary pill verified visually
+- AR ItemPicker covered by code review only (Playwright in iframe can't satisfy AR's geolocation+spawn gate). Backend buffs are exercised by existing iter_18 + iter_22 tests.
+
+### Files added
+- `/app/backend/tests/test_iteration22.py` (13 tests)
+
+### Files modified
+- `/app/backend/server.py` — `BulkGrantReq` model, `/admin/wallet/bulk-grant` endpoint, last_movement_at on `/camper/position`, stationary_minutes on `/admin/camper-positions`.
+- `/app/frontend/src/pages/ARPage.jsx` — `ItemPicker` import + mount + inventory state + razz/lucky chips on spawn info.
+- `/app/frontend/src/pages/admin/WalletTab.jsx` — bulk-grant button + dialog + groups computed from balances.
+- `/app/frontend/src/pages/admin/CamperMapTab.jsx` — stationary-alert-pill, pin badge, row badge, default max_age=120.
+
+### Backlog (P2 / future)
+- Refactor 4700-line `server.py` into `/app/backend/routers/` modules (auth, spawn, challenges, admin, social, items).
+- Trade daily-cap policy decision (count proposed vs accepted only) — director call.
+- Migrate `google.maps.Marker` → `AdvancedMarkerElement` (deprecation warning).
+- Real-iPad QA pass on the onboarding-modal z-index across all overlays.
+- bulk-grant: switch sequential awaits to `asyncio.gather` if camp grows past ~50/group.
+- Stationary threshold (15 min) currently hardcoded — surface as SpawnConfig field if camp wants tunable.
+
