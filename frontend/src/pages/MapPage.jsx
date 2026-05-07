@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { userApi } from "../lib/api";
 import { useUserAuth } from "../contexts/AuthContext";
 import { useGoogleMaps } from "../contexts/GoogleMapsContext";
-import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt, Volume2, VolumeX, Users as UsersIcon } from "lucide-react";
+import { LogOut, BackpackIcon, Sparkles, Crosshair, HelpCircle, Trophy, Plus, Minus, Shirt, Users as UsersIcon } from "lucide-react";
 import RarityBadge from "../components/RarityBadge";
 import { Button } from "../components/ui/button";
 import OnboardingModal from "../components/OnboardingModal";
@@ -26,7 +26,7 @@ import MuteToggle from "../components/MuteToggle";
 import PokestopMarker from "../components/PokestopMarker";
 import { sfx } from "../lib/soundFx";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
-import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
+import { tryPlaySpawn, tryPlayLegendary } from "../lib/sounds";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
@@ -70,7 +70,9 @@ export default function MapPage() {
     const [avatarColors, setAvatarColors] = useState(() => loadAvatarColors(user?.id));
     const [showCustomizer, setShowCustomizer] = useState(false);
     const [legendaryAlert, setLegendaryAlert] = useState(null);
-    const [soundOn, setSoundOn] = useState(isSoundEnabled());
+    // Legacy `soundOn` state removed — `<MuteToggle />` now controls audio
+    // via the unified `soundFx` module. The old toggle-sound-btn was a
+    // duplicate UI control sharing the same localStorage key.
     useEffect(() => { setAvatarColors(loadAvatarColors(user?.id)); }, [user?.id]);
 
     // Onboarding: show once per camper per device
@@ -714,49 +716,40 @@ export default function MapPage() {
                     />
                     <button
                         onClick={() => setShowOnboarding(true)}
-                        className="glass-dark rounded-full p-2"
+                        className="glass-dark rounded-full p-2.5"
                         aria-label="Help"
                         data-testid="show-onboarding-btn"
                     >
-                        <HelpCircle className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => { const next = !soundOn; setSoundEnabled(next); setSoundOn(next); }}
-                        className="glass-dark rounded-full p-2"
-                        aria-label={soundOn ? "Mute sounds" : "Unmute sounds"}
-                        title={soundOn ? "Sounds: on" : "Sounds: off"}
-                        data-testid="toggle-sound-btn"
-                    >
-                        {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                        <HelpCircle className="w-5 h-5" />
                     </button>
                     <button
                         onClick={() => nav("/leaderboard")}
-                        className="glass-dark rounded-full p-2"
+                        className="glass-dark rounded-full p-2.5"
                         aria-label="Leaderboard"
                         data-testid="open-leaderboard-btn"
                         title="Weekly leaderboard"
                     >
-                        <Trophy className="w-4 h-4" />
+                        <Trophy className="w-5 h-5" />
                     </button>
                     <button
                         onClick={() => nav("/friends")}
-                        className="glass-dark rounded-full p-2"
+                        className="glass-dark rounded-full p-2.5"
                         aria-label="Friends, trades & gifts"
                         data-testid="open-friends-btn"
                         title="Friends, trades & gifts"
                     >
-                        <UsersIcon className="w-4 h-4" />
+                        <UsersIcon className="w-5 h-5" />
                     </button>
                     <button
                         onClick={() => nav("/collection")}
-                        className="glass-dark rounded-full px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
+                        className="glass-dark rounded-full px-3 py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
                         data-testid="open-collection-btn"
                     >
-                        <BackpackIcon className="w-4 h-4" />
+                        <BackpackIcon className="w-5 h-5" />
                         <span className="hidden xs:inline">Pokedex</span>
                     </button>
-                    <button onClick={handleLogout} className="glass-dark rounded-full p-2" aria-label="Logout" data-testid="logout-btn">
-                        <LogOut className="w-4 h-4" />
+                    <button onClick={handleLogout} className="glass-dark rounded-full p-2.5" aria-label="Logout" data-testid="logout-btn">
+                        <LogOut className="w-5 h-5" />
                     </button>
                 </div>
             </div>
