@@ -1466,7 +1466,19 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
     quality = (req.throw_quality or "").lower() if req.throw_quality else None
     qmult = QUALITY_MULT.get(quality, 1.0) if quality else 1.0
     cmult = 1.7 if bool(getattr(req, "curveball", False)) else 1.0
-    effective_mult = ball_mult * qmult * cmult
+    # Active buffs: razz berry is one-shot (consumed on this throw), lucky egg
+    # is a 30-min window applied to the pokeball reward at the bottom.
+    inv_doc = await db.camper_inventory.find_one({"camper_id": user["id"]}, {"_id": 0}) or {}
+    razz_pending = bool(inv_doc.get("razz_berry_pending", False))
+    bmult = RAZZ_BERRY_MULT if razz_pending else 1.0
+    lucky_until = None
+    if inv_doc.get("lucky_egg_until"):
+        try:
+            lucky_until = datetime.fromisoformat(inv_doc["lucky_egg_until"])
+        except Exception:
+            lucky_until = None
+    is_lucky = bool(lucky_until and lucky_until > now_utc())
+    effective_mult = ball_mult * qmult * cmult * bmult
     # Pokemon-GO style 3-stage wobble. Each stage is an independent retention
     # roll; the Pokemon breaks out at the first failed stage. Ball multiplier
     # raises per-stage retention: stage_new = stage_old ** (1/effective_mult).
@@ -1511,6 +1523,8 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
                 {"group_id": user["id"]},
                 {"$set": {"current_spawns": remaining, "current_spawn": None}},
             )
+            if razz_pending:
+                await db.camper_inventory.update_one({"camper_id": user["id"]}, {"$set": {"razz_berry_pending": False}})
             return CatchResult(
                 success=False,
                 message=f"{pokemon['name']} fled after {misses} miss{'es' if misses != 1 else ''}!",
@@ -1529,6 +1543,8 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
             {"group_id": user["id"]},
             {"$set": {"current_spawns": spawns}},
         )
+        if razz_pending:
+            await db.camper_inventory.update_one({"camper_id": user["id"]}, {"$set": {"razz_berry_pending": False}})
         return CatchResult(
             success=False,
             message=f"{pokemon['name']} dodged! Try again.",
@@ -1543,10 +1559,16 @@ async def spawn_catch(req: CatchAttemptReq, user=Depends(get_current_user)):
 
     # Catch rewards — pokeballs + maybe fancy ball milestone
     reward = CATCH_REWARD.get(rarity, 0)
+    # Clear razz berry buff (was applied to retention above)
+    if razz_pending:
+        await db.camper_inventory.update_one({"camper_id": user["id"]}, {"$set": {"razz_berry_pending": False}})
     # Double-balls event multiplies the pokeball reward
     active_evs = await _active_events()
     is_double_balls = any(e.get("event_type") == "double_balls" for e in active_evs)
     if is_double_balls:
+        reward = reward * 2
+    # Lucky egg: doubles the catch pokeball reward for the 30-min window
+    if is_lucky:
         reward = reward * 2
     if reward > 0:
         wallet = await adjust_ball(user["id"], "pokeball", reward, "catch_reward", {"rarity": rarity, "pokemon_id": pokemon["id"], "double_balls": is_double_balls})
@@ -3084,6 +3106,10 @@ POKESTOP_COOLDOWN_SEC = 300  # 5 minutes
 POKESTOP_BALL_MIN, POKESTOP_BALL_MAX = 3, 5
 RAZZ_BERRY_DROP_RATE = 0.30  # 30% chance per spin
 RAZZ_BERRY_MIN, RAZZ_BERRY_MAX = 1, 2
+LUCKY_EGG_DROP_RATE = 0.08   # 8% chance per spin (rarer)
+# Item buff parameters
+RAZZ_BERRY_MULT = 1.3        # +30% catch retention multiplier on the next throw
+LUCKY_EGG_DURATION_MIN = 30  # 2× pokeball catch reward for 30 min
 
 
 @api.post("/pin/spin/{pin_id}")
@@ -3105,6 +3131,8 @@ async def spin_pin(pin_id: str, user=Depends(get_current_user)):
     items = {}
     if random.random() < RAZZ_BERRY_DROP_RATE:
         items["razz_berry"] = random.randint(RAZZ_BERRY_MIN, RAZZ_BERRY_MAX)
+    if random.random() < LUCKY_EGG_DROP_RATE:
+        items["lucky_egg"] = 1
     # Apply rewards
     await adjust_ball(user["id"], "pokeball", balls, "pokestop_spin", {"pin_id": pin_id})
     if items:
@@ -3128,7 +3156,70 @@ async def spin_pin(pin_id: str, user=Depends(get_current_user)):
 @api.get("/inventory")
 async def get_inventory(user=Depends(get_current_user)):
     doc = await db.camper_inventory.find_one({"camper_id": user["id"]}, {"_id": 0}) or {}
-    return {"items": doc.get("items", {})}
+    items = doc.get("items", {}) or {}
+    razz_pending = bool(doc.get("razz_berry_pending", False))
+    lucky_until_iso = doc.get("lucky_egg_until")
+    lucky_active = False
+    lucky_secs_left = 0
+    if lucky_until_iso:
+        try:
+            lucky_until = datetime.fromisoformat(lucky_until_iso)
+            if lucky_until > now_utc():
+                lucky_active = True
+                lucky_secs_left = int((lucky_until - now_utc()).total_seconds())
+        except Exception:
+            pass
+    return {
+        "items": items,
+        "buffs": {
+            "razz_berry_pending": razz_pending,
+            "lucky_egg_active": lucky_active,
+            "lucky_egg_seconds_left": lucky_secs_left,
+        },
+    }
+
+
+class UseItemReq(BaseModel):
+    item: Literal["razz_berry", "lucky_egg"]
+
+
+@api.post("/inventory/use")
+async def use_item(req: UseItemReq, user=Depends(get_current_user)):
+    """Consume one of an inventory item to apply its buff. Returns the new
+    inventory + buff snapshot so the AR screen can render the active state."""
+    doc = await db.camper_inventory.find_one({"camper_id": user["id"]}, {"_id": 0}) or {}
+    items = dict(doc.get("items", {}) or {})
+    if int(items.get(req.item, 0)) < 1:
+        raise HTTPException(400, f"You don't have any {req.item.replace('_', ' ')}s")
+    if req.item == "razz_berry":
+        if doc.get("razz_berry_pending"):
+            raise HTTPException(400, "You already have a razz berry primed for the next throw")
+        items["razz_berry"] = int(items["razz_berry"]) - 1
+        await db.camper_inventory.update_one(
+            {"camper_id": user["id"]},
+            {"$set": {"items": items, "razz_berry_pending": True, "updated_at": now_utc().isoformat()}},
+            upsert=True,
+        )
+        return {"ok": True, "razz_berry_pending": True, "next_throw_multiplier": RAZZ_BERRY_MULT, "items": items}
+    if req.item == "lucky_egg":
+        # Stack: extend the existing window from whichever is later (now or current expiry)
+        cur_iso = doc.get("lucky_egg_until")
+        cur = None
+        if cur_iso:
+            try:
+                cur = datetime.fromisoformat(cur_iso)
+            except Exception:
+                cur = None
+        base = cur if (cur and cur > now_utc()) else now_utc()
+        new_until = base + timedelta(minutes=LUCKY_EGG_DURATION_MIN)
+        items["lucky_egg"] = int(items["lucky_egg"]) - 1
+        await db.camper_inventory.update_one(
+            {"camper_id": user["id"]},
+            {"$set": {"items": items, "lucky_egg_until": new_until.isoformat(), "updated_at": now_utc().isoformat()}},
+            upsert=True,
+        )
+        return {"ok": True, "lucky_egg_until": new_until.isoformat(), "items": items}
+    raise HTTPException(400, "Unknown item")
 
 
 @api.get("/pokestops/status")
