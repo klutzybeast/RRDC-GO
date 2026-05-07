@@ -337,6 +337,7 @@ export default function MapPage() {
             (pos) => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 setMyLocation(loc);
+                setGpsAccuracy(typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : null);
                 setGeoError("");
                 setGeoBlocked(false);
                 persistPosition(loc.lat, loc.lng, pos.coords.accuracy);
@@ -381,6 +382,7 @@ export default function MapPage() {
             (pos) => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 setMyLocation(loc);
+                setGpsAccuracy(typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : null);
                 setGeoBlocked(false);
                 setGeoError("");
                 if (mapRef.current) {
@@ -795,6 +797,30 @@ export default function MapPage() {
                     />
                     <BuddyStrip onTap={() => nav("/collection")} />
                     <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                    {gpsAccuracy != null && (() => {
+                        // Browser geolocation accuracy: lower = better. Buckets:
+                        //   <=10m → green ("Strong")
+                        //   <=25m → amber ("OK")
+                        //   >25m  → rose ("Weak — move to open sky")
+                        const acc = Math.round(gpsAccuracy);
+                        const tier = acc <= 10 ? "strong" : acc <= 25 ? "ok" : "weak";
+                        const palette = {
+                            strong: { bg: "bg-emerald-500/95", ring: "ring-emerald-200", label: "Strong" },
+                            ok: { bg: "bg-amber-400/95 text-amber-950", ring: "ring-amber-200", label: "OK" },
+                            weak: { bg: "bg-rose-500/95", ring: "ring-rose-200", label: "Weak" },
+                        }[tier];
+                        return (
+                            <div
+                                title={tier === "weak" ? "GPS is weak — move to open sky for better catches" : `GPS accuracy ±${acc} m`}
+                                className={`flex items-center gap-1 rounded-full ${palette.bg} ${tier === "ok" ? "" : "text-white"} text-[10px] font-black uppercase tracking-wider px-2 py-1 shadow ring-1 ${palette.ring}`}
+                                data-testid="gps-accuracy-badge"
+                                data-tier={tier}
+                            >
+                                <Crosshair className="w-3 h-3" />
+                                ±{acc}m
+                            </div>
+                        );
+                    })()}
                     <MuteToggle />
                 </div>
             </div>
