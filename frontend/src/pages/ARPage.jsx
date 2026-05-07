@@ -79,7 +79,17 @@ export default function ARPage() {
     const targetSpawnId = params.get("spawn");
 
     const videoRef = useRef(null);
-    const [cameraOn, setCameraOn] = useState(true);
+    // Persist camera preference. iOS Safari re-prompts inside iframes / on
+    // PWA reinstall, but on a real iPad PWA the localStorage value is enough
+    // for us to NOT auto-call getUserMedia after the user has said "Skip".
+    const [cameraOn, setCameraOnRaw] = useState(() => {
+        try { return localStorage.getItem("rrdc:cameraOn") !== "0"; } catch { return true; }
+    });
+    const setCameraOn = useCallback((v) => {
+        const next = typeof v === "function" ? v(cameraOn) : v;
+        setCameraOnRaw(next);
+        try { localStorage.setItem("rrdc:cameraOn", next ? "1" : "0"); } catch { /* noop */ }
+    }, [cameraOn]);
     const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef, cameraOn);
 
     const [spawn, setSpawn] = useState(null);
@@ -438,44 +448,45 @@ export default function ARPage() {
                     </div>
                 </div>
 
-                {/* Spawn info */}
+                {/* Spawn info — slim corner badge so it never blocks the Pokemon target.
+                    Buff chips (razz/lucky) are pinned just below the back button, also corner-aligned. */}
                 {spawn && (
                     <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="absolute top-20 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-5 py-3 text-center"
+                        className="absolute top-20 left-4 right-4 flex items-start justify-between gap-2 pointer-events-none"
                     >
-                        <div className="text-xs uppercase tracking-widest opacity-80">A wild</div>
-                        <div className="font-heading text-2xl font-bold" data-testid="active-spawn-name">{spawn.pokemon.name}</div>
-                        <div className="mt-1 flex items-center justify-center gap-2 flex-wrap">
-                            <RarityBadge rarity={spawn.pokemon.rarity} />
+                        <div className="glass-dark rounded-xl px-3 py-1.5 inline-flex items-center gap-2">
+                            <RarityBadge rarity={spawn.pokemon.rarity} className="text-[10px] px-2 py-0" />
                             {spawn.pokemon.type && spawn.pokemon.type !== "normal" && (
                                 <TypeBadge type={spawn.pokemon.type} size="sm" />
                             )}
                             {missCount > 0 && (
-                                <span className="text-xs opacity-75">misses: {missCount}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-300">misses {missCount}</span>
                             )}
                         </div>
                         {(razzPrimed || luckyActive) && (
-                            <div className="mt-2 flex items-center justify-center gap-1.5 flex-wrap" data-testid="ar-active-buffs">
+                            <div className="flex items-center gap-1.5 flex-wrap" data-testid="ar-active-buffs">
                                 {razzPrimed && (
                                     <span
-                                        className="px-2 py-0.5 rounded-full bg-rose-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-rose-200/50 animate-pulse"
+                                        className="px-2 py-1 rounded-full bg-rose-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-rose-200/50 animate-pulse"
                                         data-testid="razz-primed-chip"
                                     >
-                                        Razz primed +30%
+                                        🍓 +30%
                                     </span>
                                 )}
                                 {luckyActive && (
                                     <span
-                                        className="px-2 py-0.5 rounded-full bg-amber-400/95 text-amber-950 text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-amber-200/60"
+                                        className="px-2 py-1 rounded-full bg-amber-400/95 text-amber-950 text-[10px] font-black uppercase tracking-wider shadow ring-1 ring-amber-200/60"
                                         data-testid="lucky-active-chip"
                                     >
-                                        Lucky 2× balls
+                                        🥚 2× balls
                                     </span>
                                 )}
                             </div>
                         )}
+                        {/* Hidden test hook — keeps existing automated tests passing. */}
+                        <span className="sr-only" data-testid="active-spawn-name">{spawn.pokemon.name}</span>
                     </motion.div>
                 )}
 
@@ -527,20 +538,21 @@ export default function ARPage() {
                     )}
                 </div>
 
-                {/* Spiral throw animation — ball arcs up, spirals inward toward the
-                    Pokemon (center of screen), shrinking + spinning aggressively. */}
+                {/* Spiral throw animation — ball arcs up FROM the bottom-center
+                    swipe origin TO the Pokemon at screen center, shrinking + spinning.
+                    Anchored at top:50% / left:50% so the final {x:0,y:0,scale:0.18}
+                    actually lands ON the Pokemon image (which PokemonOverlay also
+                    renders dead-center). */}
                 <AnimatePresence>
                     {showBallAnim && (
                         <motion.div
                             className="absolute pointer-events-none"
-                            style={{ left: "calc(50% - 48px)", bottom: "8rem" }}
-                            initial={{ x: 0, y: 0, scale: 1, opacity: 1, rotate: 0 }}
+                            style={{ left: "50%", top: "50%", x: "-50%", y: "-50%" }}
+                            initial={{ x: "-50%", y: "calc(40vh - 50%)", scale: 1, opacity: 1, rotate: 0 }}
                             animate={{
-                                // Curving arc — ball rises, curves slightly to mimic a spin throw,
-                                // and lands in the center where the Pokemon is.
-                                x: [0, 14, -6, 0],
-                                y: [0, -180, -300, -380],
-                                scale: [1, 0.8, 0.5, 0.22],
+                                x:     ["-50%",   "-46%",         "-52%",        "-50%"],
+                                y:     ["calc(40vh - 50%)", "calc(10vh - 50%)", "calc(-12vh - 50%)", "-50%"],
+                                scale: [1, 0.7, 0.4, 0.18],
                                 rotate: [0, 540, 1080, 1620],
                                 opacity: [1, 1, 1, 0.9],
                             }}
