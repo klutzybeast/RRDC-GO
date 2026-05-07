@@ -1696,8 +1696,12 @@ async def list_catches(user=Depends(get_current_user), limit: int = 200):
 
 @api.get("/bank", response_model=List[BankEntry])
 async def bank(user=Depends(get_current_user)):
+    return await _bank_for(user["id"])
+
+
+async def _bank_for(camper_id: str) -> List[BankEntry]:
     pipeline = [
-        {"$match": {"group_id": user["id"]}},
+        {"$match": {"group_id": camper_id}},
         {"$sort": {"caught_at": -1}},
         {"$group": {
             "_id": "$pokemon_id",
@@ -3517,6 +3521,22 @@ class DailyGiftOut(BaseModel):
     sent_at: datetime
     opened: bool
     pokeballs: int = 0
+
+
+@api.get("/friends/{camper_id}/bank", response_model=List[BankEntry])
+async def get_friend_bank(camper_id: str, user=Depends(get_current_user)):
+    """Same-group-only peek at a friend's collection so kids can propose
+    same-rarity trades. Returns nothing when SpawnConfig.social_enabled=False
+    or the target isn't in the requester's group."""
+    cfg = await load_spawn_config()
+    if not cfg.get("social_enabled", True):
+        return []
+    target = await db.campers.find_one({"id": camper_id}, {"_id": 0, "group_code": 1})
+    if not target:
+        raise HTTPException(404, "Camper not found")
+    if (target.get("group_code") or "").upper() != (user.get("group_name") or "").upper():
+        raise HTTPException(403, "You can only see same-group friends' Pokémon")
+    return await _bank_for(camper_id)
 
 
 @api.get("/friends", response_model=List[FriendOut])

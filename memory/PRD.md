@@ -707,3 +707,21 @@ Result: every defeat returned 500 and granted nothing. Fixed both, plus:
 ### Backlog (non-blocking)
 - Trade daily cap counts ACCEPTED only — director may want to count PROPOSED too. Director call.
 - Trade screen propose flow currently requires the camper to already know the friend's `to_camper_id` — not yet exposed via "Propose trade" button on Collection detail. Easy add when needed.
+
+
+
+## 2026-05-07 — Iteration 22 — Propose-trade entry on Collection detail
+
+### Shipped ✅
+- **Backend**: new `GET /api/friends/{camper_id}/bank` — same-group-only peek at a friend's collection so kids can pick same-rarity targets. Refactored `GET /api/bank` to use a shared `_bank_for(camper_id)` helper.
+- **Frontend**: Collection detail modal now has a `Trade this away` button (`data-testid='propose-trade-btn'`) that opens a 2-step `ProposeTradeModal`:
+  1. Pick a same-group friend (`propose-friend-{camper_id}`)
+  2. Pick one of THEIR same-rarity Pokémon (`propose-pick-{pokemon_id}`)
+  → POSTs `/api/trades/propose` and routes to `/friends` so both campers see it instantly.
+- The friend's bank is filtered client-side to **same rarity as the source Pokémon** so kids can't accidentally request a wrong-rarity trade and get a 400.
+
+### Test pass: iteration_21 still 26/26. Smoke-tested `/friends/{id}/bank` returning a real B01 peer's 3-entry bank.
+
+### Files modified
+- `/app/backend/server.py` — `/friends/{camper_id}/bank` + `_bank_for` extraction.
+- `/app/frontend/src/pages/CollectionPage.jsx` — `ProposeTradeModal` component + entry button.

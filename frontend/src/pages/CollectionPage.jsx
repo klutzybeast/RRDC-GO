@@ -6,8 +6,8 @@ import RarityBadge from "../components/RarityBadge";
 import TypeBadge from "../components/TypeBadge";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { ArrowLeft, ArrowUpDown } from "lucide-react";
-import { motion } from "framer-motion";
+import { ArrowLeft, ArrowUpDown, ArrowLeftRight, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import TrainerAvatar from "../components/TrainerAvatar";
 import { loadAvatarColors } from "../components/TrainerCustomizer";
 import SupervisorChallenge from "../components/SupervisorChallenge";
@@ -23,6 +23,7 @@ export default function CollectionPage() {
     const [selected, setSelected] = useState(null);
     const [buddy, setBuddy] = useState(null);
     const [candies, setCandies] = useState({});
+    const [trading, setTrading] = useState(null); // the BankEntry the camper wants to trade AWAY
 
     const refreshBuddyCandies = React.useCallback(() => {
         userApi.get("/buddy").then((r) => setBuddy(r.data)).catch(() => {});
@@ -234,6 +235,14 @@ export default function CollectionPage() {
                                             ? `Swap available in ${Math.max(1, Math.ceil((new Date(buddy.can_swap_at) - new Date()) / 60000))}m`
                                             : "Set as Buddy"}
                                 </Button>
+                                <Button
+                                    onClick={() => setTrading(selected)}
+                                    variant="outline"
+                                    className="rounded-2xl h-11 font-bold border-2 border-emerald-300"
+                                    data-testid="propose-trade-btn"
+                                >
+                                    <ArrowLeftRight className="w-4 h-4 mr-2" /> Trade this away
+                                </Button>
                                 {selected.evolution_target_id && (
                                     <div className="rounded-2xl bg-amber-50 border-2 border-amber-200 p-3" data-testid="evolution-card">
                                         <div className="flex items-center justify-between gap-2">
@@ -274,7 +283,98 @@ export default function CollectionPage() {
                     </motion.div>
                 </div>
             )}
+            <ProposeTradeModal
+                source={trading}
+                onClose={() => setTrading(null)}
+                onSent={() => { setTrading(null); setSelected(null); nav("/friends"); }}
+            />
         </div>
+    );
+}
+
+function ProposeTradeModal({ source, onClose, onSent }) {
+    const [friends, setFriends] = useState(null);
+    const [friend, setFriend] = useState(null);
+    const [friendBank, setFriendBank] = useState(null);
+    const [busy, setBusy] = useState(false);
+    useEffect(() => {
+        if (!source) { setFriends(null); setFriend(null); setFriendBank(null); return; }
+        userApi.get("/friends").then((r) => setFriends(r.data || [])).catch(() => setFriends([]));
+    }, [source]);
+    useEffect(() => {
+        if (!friend) { setFriendBank(null); return; }
+        userApi.get(`/friends/${friend.camper_id}/bank`)
+            .then((r) => setFriendBank((r.data || []).filter((b) => b.rarity === source.rarity)))
+            .catch(() => setFriendBank([]));
+    }, [friend, source]);
+    const propose = async (theirEntry) => {
+        setBusy(true);
+        try {
+            const { toast } = await import("sonner");
+            await userApi.post("/trades/propose", {
+                to_camper_id: friend.camper_id,
+                offer_pokemon_id: source.pokemon_id,
+                request_pokemon_id: theirEntry.pokemon_id,
+            });
+            toast.success(`Trade proposed to ${friend.first_name}!`);
+            onSent();
+        } catch (e) {
+            const { toast } = await import("sonner");
+            toast.error(e?.response?.data?.detail || "Could not propose trade");
+        } finally { setBusy(false); }
+    };
+    if (!source) return null;
+    return (
+        <AnimatePresence>
+            <motion.div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2100] flex items-end sm:items-center justify-center p-2 sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} data-testid="propose-trade-modal">
+                <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }} className="bg-white rounded-3xl w-full max-w-md p-4 shadow-2xl max-h-[88vh] overflow-y-auto">
+                    <div className="flex items-start justify-between mb-3">
+                        <div>
+                            <div className="text-[10px] uppercase tracking-widest font-black text-river-600">Propose a trade</div>
+                            <div className="font-heading text-lg font-black text-slate-900">You give: {source.name}</div>
+                            <div className="text-xs text-slate-500">Same-rarity ({source.rarity}) · same-group only</div>
+                        </div>
+                        <button onClick={onClose} className="rounded-full p-2 hover:bg-slate-100" data-testid="propose-trade-close"><X className="w-5 h-5" /></button>
+                    </div>
+                    {!friend ? (
+                        <div>
+                            <div className="text-xs uppercase tracking-widest font-bold text-slate-500 mb-2">1 · Pick a friend</div>
+                            {friends === null && <div className="text-center py-6 text-slate-500">Loading friends…</div>}
+                            {friends && friends.length === 0 && <div className="text-center py-6 text-slate-500">No same-group friends yet.</div>}
+                            <ul className="space-y-1">
+                                {(friends || []).map((f) => (
+                                    <li key={f.camper_id}>
+                                        <button onClick={() => setFriend(f)} className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-slate-50 border border-slate-200" data-testid={`propose-friend-${f.camper_id}`}>
+                                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-300 to-river-500 ring-2 ring-white text-white font-black flex items-center justify-center">{(f.first_name || "C")[0]}</div>
+                                            <div className="flex-1 text-left">
+                                                <div className="text-sm font-bold text-slate-900">{f.first_name}</div>
+                                                <div className="text-[10px] text-slate-500">🏆 {f.catches_count}</div>
+                                            </div>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ) : (
+                        <div>
+                            <button onClick={() => setFriend(null)} className="text-xs text-river-600 font-bold mb-2" data-testid="propose-back-friends">← Pick a different friend</button>
+                            <div className="text-xs uppercase tracking-widest font-bold text-slate-500 mb-2">2 · Pick what to request from {friend.first_name} ({source.rarity} only)</div>
+                            {friendBank === null && <div className="text-center py-6 text-slate-500">Loading their collection…</div>}
+                            {friendBank && friendBank.length === 0 && <div className="text-center py-6 text-slate-500">{friend.first_name} doesn't have any {source.rarity} Pokémon yet.</div>}
+                            <div className="grid grid-cols-3 gap-2">
+                                {(friendBank || []).map((b) => (
+                                    <button key={b.pokemon_id} onClick={() => propose(b)} disabled={busy} className="rounded-xl border border-slate-200 hover:border-river-400 hover:bg-river-50 p-2 flex flex-col items-center disabled:opacity-50" data-testid={`propose-pick-${b.pokemon_id}`}>
+                                        {b.image_data_url ? <img src={b.image_data_url} alt={b.name} className="w-14 h-14 object-contain" /> : <div className="w-14 h-14 bg-slate-100 rounded-lg" />}
+                                        <div className="text-[11px] font-bold text-slate-900 truncate w-full text-center mt-1">{b.name}</div>
+                                        <div className="text-[9px] text-slate-500">×{b.count}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </motion.div>
+            </motion.div>
+        </AnimatePresence>
     );
 }
 
