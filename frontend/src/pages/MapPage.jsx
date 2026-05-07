@@ -183,12 +183,15 @@ export default function MapPage() {
             sfx.pokestopSpin();
             if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
         } catch (e) {
-            const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
             const status = e?.response?.status;
-            // Cooldown (429) is already communicated by the badge label
-            // ("Ready in 1m23s"). No need to spam an error toast for the
-            // expected case. Only surface other failures (404, 500, etc.).
-            if (status !== 429) toast.error(msg);
+            // Cooldown (429), out-of-range (403), and stale-GPS (409) are
+            // already communicated visually by the pokéstop badge state
+            // (greyed out / cooldown countdown). Don't spam an error toast
+            // for those — it's just noise. Only surface unexpected failures.
+            if (status !== 429 && status !== 403 && status !== 409) {
+                const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
+                toast.error(msg);
+            }
         }
     }, [refreshPokestopStatus, refreshWallet, myLocation, pokestopEngageM]);
 

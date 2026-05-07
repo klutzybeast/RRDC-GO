@@ -3196,7 +3196,11 @@ async def spin_pin(pin_id: str, user=Depends(get_current_user)):
     dlat = (float(pin["latitude"]) - float(pos["latitude"])) * 111_111.0
     dlng = (float(pin["longitude"]) - float(pos["longitude"])) * 111_111.0 * math.cos(math.radians(float(pos["latitude"])))
     dist_m = (dlat * dlat + dlng * dlng) ** 0.5
-    if dist_m > engage_m:
+    # Forgive small GPS drift: the camper's iPad may report 9 ft when the
+    # badge became tappable, and 11 ft a half-second later when the request
+    # reaches us. A strict cutoff would silently reject those — bake in a
+    # 30% buffer so the experience matches what the kid saw on screen.
+    if dist_m > engage_m * 1.3:
         feet = int(round(dist_m * 3.281))
         raise HTTPException(403, f"Too far to spin — walk closer ({feet} ft away, need to be within {int(round(engage_m * 3.281))} ft)")
     cooldown_sec = await _pokestop_cooldown_sec()
