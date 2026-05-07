@@ -429,7 +429,6 @@ export default function MapPage() {
     }, [spawns, myLocation]);
 
     const activeSpawn = rankedSpawns[0] || null;
-    const activeInRange = activeSpawn && activeSpawn._distance_m != null && activeSpawn._distance_m <= catchRadius;
 
     const openCatchFor = (s) => {
         if (!s) return;
@@ -444,8 +443,6 @@ export default function MapPage() {
         }
         nav(`/ar?spawn=${encodeURIComponent(s.spawn_id)}`);
     };
-
-    const openCatch = () => openCatchFor(activeSpawn);
 
     const campCenter = myLocation || center;
 
@@ -809,28 +806,8 @@ export default function MapPage() {
                 </div>
             </div>
 
-            {/* Bottom hud */}
-            <div className="absolute bottom-3 left-2 right-2 sm:bottom-4 sm:left-3 sm:right-3 flex items-end justify-end gap-2 z-10 safe-bottom">
-                {activeSpawn && (
-                    <motion.button
-                        onClick={openCatch}
-                        whileTap={{ scale: 0.95 }}
-                        disabled={!activeInRange}
-                        className={`relative px-5 py-3 rounded-full font-heading text-base font-black uppercase tracking-wider shadow-xl tactile-btn ${
-                            activeInRange
-                                ? "bg-amber-400 text-slate-900 hover:bg-amber-300"
-                                : "bg-slate-700/80 text-white opacity-80 cursor-not-allowed"
-                        }`}
-                        data-testid="open-catch-btn"
-                    >
-                        {activeInRange
-                            ? `Catch ${activeSpawn.pokemon?.name || ""}!`
-                            : activeSpawn._distance_m != null
-                                ? `${Math.round(activeSpawn._distance_m)} m away — walk closer`
-                                : "Walk closer"}
-                    </motion.button>
-                )}
-            </div>
+            {/* Bottom hud — kids tap a Pokémon directly on the map to catch it,
+                so no separate "Catch <name>!" CTA is needed at the bottom. */}
 
             {(geoError || geoBlocked) && !myLocation && (
                 <div className="absolute top-16 left-1/2 -translate-x-1/2 glass-dark rounded-2xl px-4 py-3 text-xs font-bold max-w-[92%] sm:max-w-md text-center z-20" data-testid="geo-error">
