@@ -2691,6 +2691,22 @@ async def get_or_init_wallet(camper_id: str) -> dict:
         "balance_after": STARTING_BALLS,
         "created_at": now,
     })
+    # Seed a small starter inventory so brand-new campers immediately see the
+    # razz berry / lucky egg picker on the AR screen and learn the mechanic
+    # without waiting for a lucky pokéstop drop.
+    await db.camper_inventory.update_one(
+        {"camper_id": camper_id},
+        {
+            "$setOnInsert": {
+                "camper_id": camper_id,
+                "items": {"razz_berry": 3, "lucky_egg": 1},
+                "razz_berry_pending": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+        },
+        upsert=True,
+    )
     return w
 
 
@@ -3133,9 +3149,9 @@ async def list_candies(user=Depends(get_current_user)):
 
 POKESTOP_COOLDOWN_SEC = 120  # default 2 minutes — overridable via SpawnConfig.pokestop_cooldown_seconds
 POKESTOP_BALL_MIN, POKESTOP_BALL_MAX = 3, 5
-RAZZ_BERRY_DROP_RATE = 0.30  # 30% chance per spin
+RAZZ_BERRY_DROP_RATE = 0.6   # 60% chance per spin — generous so kids get to use them
 RAZZ_BERRY_MIN, RAZZ_BERRY_MAX = 1, 2
-LUCKY_EGG_DROP_RATE = 0.08   # 8% chance per spin (rarer)
+LUCKY_EGG_DROP_RATE = 0.15   # 15% chance per spin (rarer)
 # Item buff parameters
 RAZZ_BERRY_MULT = 1.3        # +30% catch retention multiplier on the next throw
 LUCKY_EGG_DURATION_MIN = 30  # 2× pokeball catch reward for 30 min

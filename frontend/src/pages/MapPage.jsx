@@ -59,6 +59,7 @@ export default function MapPage() {
     const [zoom, setZoom] = useState(18);
     const [myLocation, setMyLocation] = useState(null);
     const [gpsAccuracy, setGpsAccuracy] = useState(null); // meters; from pos.coords.accuracy
+    const [inventory, setInventory] = useState(null);
     const [geoError, setGeoError] = useState("");
     const [geoBlocked, setGeoBlocked] = useState(false);
     const mapRef = useRef(null);
@@ -177,6 +178,7 @@ export default function MapPage() {
             flashDelta(balls);
             refreshWallet();
             refreshPokestopStatus();
+            refreshInventory();
             sfx.pokestopSpin();
             if (navigator.vibrate) navigator.vibrate([30, 30, 60]);
         } catch (e) {
@@ -798,6 +800,33 @@ export default function MapPage() {
                     />
                     <BuddyStrip onTap={() => nav("/collection")} />
                     <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                    {inventory && (() => {
+                        const razz = Number(inventory.items?.razz_berry || 0);
+                        const lucky = Number(inventory.items?.lucky_egg || 0);
+                        const razzPending = !!inventory.buffs?.razz_berry_pending;
+                        const luckyActive = !!inventory.buffs?.lucky_egg_active;
+                        if (razz === 0 && lucky === 0 && !razzPending && !luckyActive) return null;
+                        return (
+                            <div
+                                title="You can use these on the AR catch screen — tap a Pokémon to start, then tap the items button"
+                                className="flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2 py-1 shadow ring-1 ring-slate-200"
+                                data-testid="map-inventory-pill"
+                            >
+                                {(razz > 0 || razzPending) && (
+                                    <span className={`flex items-center gap-0.5 text-[11px] font-black ${razzPending ? "text-rose-600" : "text-rose-500"}`}>
+                                        <span aria-hidden>🍓</span>
+                                        <span className="tabular-nums">{razz}</span>
+                                    </span>
+                                )}
+                                {(lucky > 0 || luckyActive) && (
+                                    <span className={`flex items-center gap-0.5 text-[11px] font-black ${luckyActive ? "text-amber-600" : "text-amber-500"}`}>
+                                        <span aria-hidden>🥚</span>
+                                        <span className="tabular-nums">{lucky}</span>
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })()}
                     {gpsAccuracy != null && (() => {
                         // Browser geolocation accuracy: lower = better. Buckets:
                         //   <=10m → green ("Strong")
@@ -827,34 +856,7 @@ export default function MapPage() {
             </div>
 
             {/* Bottom hud */}
-            <div className="absolute bottom-3 left-2 right-2 sm:bottom-4 sm:left-3 sm:right-3 flex items-end justify-between gap-2 z-10 safe-bottom">
-                <div className="glass-dark rounded-2xl px-4 py-3 max-w-[260px]" data-testid="hud-status">
-                    {spawns.length > 0 ? (
-                        <>
-                            <div className="text-[10px] uppercase tracking-widest opacity-70">Nearby ({spawns.length})</div>
-                            <div className="font-heading text-lg font-bold">
-                                {activeSpawn?.pokemon?.name}
-                            </div>
-                            <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                {activeSpawn && <RarityBadge rarity={activeSpawn.pokemon.rarity} className="text-[10px] px-2 py-0" />}
-                                {activeSpawn?._distance_m != null && (
-                                    <span className="text-[11px] opacity-80">
-                                        {Math.round(activeSpawn._distance_m)} m
-                                    </span>
-                                )}
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div className="text-[10px] uppercase tracking-widest opacity-70">Spawns</div>
-                            <div className="font-heading text-lg font-bold">
-                                {enabled ? "Keep walking!" : "Paused"}
-                            </div>
-                            <div className="text-[11px] opacity-70 mt-0.5">Pokemon will appear nearby</div>
-                        </>
-                    )}
-                </div>
-
+            <div className="absolute bottom-3 left-2 right-2 sm:bottom-4 sm:left-3 sm:right-3 flex items-end justify-end gap-2 z-10 safe-bottom">
                 {activeSpawn && (
                     <motion.button
                         onClick={openCatch}

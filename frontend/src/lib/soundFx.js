@@ -26,6 +26,35 @@ function ctx() {
     return _ctx;
 }
 
+// iOS Safari requires the AudioContext to be created/resumed from a user
+// gesture before any audio (Web Audio AND <audio>) will play. Install a
+// one-time global listener that unlocks audio on the first interaction.
+// Without this, Pokémon cries fired from polling timers never play because
+// they're outside the gesture-context window.
+if (typeof window !== "undefined") {
+    let _unlocked = false;
+    const unlock = () => {
+        if (_unlocked) return;
+        _unlocked = true;
+        // Resume the WebAudio context.
+        const c = ctx();
+        if (c && c.state === "suspended") c.resume().catch(() => {});
+        // Prime the <audio> element pipeline with a silent wav so iOS
+        // permanently allows .play() from non-gesture contexts later.
+        try {
+            const silent = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+            silent.volume = 0;
+            silent.play().catch(() => {});
+        } catch { /* noop */ }
+        window.removeEventListener("pointerdown", unlock);
+        window.removeEventListener("touchstart", unlock);
+        window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchstart", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+}
+
 export function isMuted() { return _muted; }
 export function setMuted(v) {
     _muted = !!v;

@@ -49,7 +49,7 @@ export default function PokestopMarker({
     }
 
     const distFeet = distanceM != null ? Math.round(distanceM * 3.281) : null;
-    const engageFeet = Math.round(engageM * 3.281);
+    void distFeet; void engageM; // unused after distance/engage UI removed
 
     // Royal blue palette — Rolling River brand color: #1d4ed8 (blue-700)
     const ROYAL_DEEP = "#1d4ed8";
@@ -183,37 +183,29 @@ export default function PokestopMarker({
                 )}
             </motion.button>
 
-            {/* State label pill — sits under the badge */}
-            <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: -10 }}>
-                {tappable ? (
-                    <motion.div
-                        animate={{ scale: [1, 1.06, 1] }}
-                        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                        className="px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-black uppercase tracking-widest whitespace-nowrap shadow-md ring-1 ring-amber-200"
-                        data-testid="pokestop-tap-label"
-                    >
-                        Tap to spin!
-                    </motion.div>
-                ) : !ready ? (
-                    <div
-                        className="px-2.5 py-0.5 rounded-full bg-slate-700/95 text-white text-[10px] font-bold whitespace-nowrap shadow"
-                        data-testid="pokestop-cooldown-label"
-                    >
-                        {cooldownLabel ? `Ready in ${cooldownLabel}` : "Cooling down…"}
-                    </div>
-                ) : distFeet != null ? (
-                    <div
-                        className="px-2.5 py-0.5 rounded-full bg-white/95 text-slate-700 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200"
-                        data-testid="pokestop-distance-label"
-                    >
-                        {distFeet} ft · walk closer ({engageFeet} ft)
-                    </div>
-                ) : (
-                    <div className="px-2.5 py-0.5 rounded-full bg-white/95 text-slate-600 text-[10px] font-bold whitespace-nowrap shadow ring-1 ring-slate-200">
-                        Locating…
-                    </div>
-                )}
-            </div>
+            {/* State label pill — only when in-range OR cooling down. Out-of-range
+                stops just show the badge with no text noise. */}
+            {(tappable || !ready) && (
+                <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: -10 }}>
+                    {tappable ? (
+                        <motion.div
+                            animate={{ scale: [1, 1.06, 1] }}
+                            transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                            className="px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-black uppercase tracking-widest whitespace-nowrap shadow-md ring-1 ring-amber-200"
+                            data-testid="pokestop-tap-label"
+                        >
+                            Tap to spin!
+                        </motion.div>
+                    ) : (
+                        <div
+                            className="px-2.5 py-0.5 rounded-full bg-slate-700/95 text-white text-[10px] font-bold whitespace-nowrap shadow"
+                            data-testid="pokestop-cooldown-label"
+                        >
+                            {cooldownLabel ? `Ready in ${cooldownLabel}` : "Cooling down…"}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
