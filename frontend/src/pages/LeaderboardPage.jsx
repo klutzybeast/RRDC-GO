@@ -115,11 +115,11 @@ export default function LeaderboardPage() {
                 <div className="flex items-center gap-3 px-4 py-3 bg-slate-900/80 backdrop-blur-md border-b border-white/10">
                     <button
                         onClick={() => nav("/map")}
-                        className="glass-dark rounded-full p-2"
+                        className="glass-dark rounded-full p-2.5"
                         aria-label="Back"
                         data-testid="leaderboard-back-btn"
                     >
-                        <ArrowLeft className="w-4 h-4 text-white" />
+                        <ArrowLeft className="w-5 h-5 text-white" />
                     </button>
                     <div className="flex-1 min-w-0">
                         <div className="text-[10px] uppercase tracking-widest text-amber-300 font-bold flex items-center gap-1">
@@ -145,14 +145,14 @@ export default function LeaderboardPage() {
                             <button
                                 key={t.id}
                                 onClick={() => setTab(t.id)}
-                                className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                                className={`flex items-center gap-1.5 px-4 h-10 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                                     active
                                         ? "bg-amber-400 text-slate-900"
                                         : "bg-white/10 text-white hover:bg-white/20"
                                 }`}
                                 data-testid={`lb-tab-${t.id}`}
                             >
-                                <Icon className="w-3.5 h-3.5" />
+                                <Icon className="w-4 h-4" />
                                 {t.label}
                             </button>
                         );

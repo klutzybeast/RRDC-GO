@@ -187,7 +187,7 @@ export default function LoginPage() {
                                                     <Button
                                                         onClick={() => play(c)}
                                                         disabled={loadingId === c.id}
-                                                        className="tactile-btn rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-9 px-4"
+                                                        className="tactile-btn rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-11 px-5"
                                                         data-testid={`play-camper-${c.id}`}
                                                     >
                                                         {loadingId === c.id ? "…" : (<><Play className="w-4 h-4 mr-1" /> Play</>)}

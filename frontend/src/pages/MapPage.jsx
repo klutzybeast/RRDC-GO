@@ -894,7 +894,7 @@ export default function MapPage() {
                             onClick={recenterOnMe}
                             size="sm"
                             variant="outline"
-                            className="rounded-full h-9 text-xs bg-white/20 hover:bg-white/30 text-white border-white/40 font-bold px-4"
+                            className="rounded-full h-11 text-sm bg-white/20 hover:bg-white/30 text-white border-white/40 font-bold px-5"
                             data-testid="enable-location-btn"
                         >
                             Try again

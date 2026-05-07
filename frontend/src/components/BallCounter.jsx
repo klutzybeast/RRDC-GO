@@ -8,7 +8,7 @@ export default function BallCounter({ balance, delta, onClick, className = "" })
         <button
             type="button"
             onClick={onClick}
-            className={`glass-dark rounded-full pl-2 pr-3 sm:pl-2.5 sm:pr-4 py-1.5 sm:py-2 flex items-center gap-1.5 sm:gap-2 font-bold text-sm sm:text-base relative ${className}`}
+            className={`glass-dark rounded-full pl-2 pr-3 sm:pl-2.5 sm:pr-4 h-10 sm:h-11 flex items-center gap-1.5 sm:gap-2 font-bold text-sm sm:text-base relative ${className}`}
             data-testid="ball-counter"
         >
             <img src={RIVER_BALL} alt="" className="w-5 h-5 sm:w-6 sm:h-6" draggable={false} />
