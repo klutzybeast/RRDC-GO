@@ -28,6 +28,7 @@ export default function SpawnConfigTab() {
                 spawn_ttl_seconds: Number(cfg.spawn_ttl_seconds),
                 catch_radius_meters: Number(cfg.catch_radius_meters ?? 40),
                 pokestop_cooldown_seconds: Math.max(10, Number(cfg.pokestop_cooldown_seconds ?? 120)),
+                pokestop_engage_meters: Math.max(1, Number(cfg.pokestop_engage_meters ?? 3)),
                 featured_weight_multiplier: Number(cfg.featured_weight_multiplier ?? 10),
                 camp_latitude: Number(cfg.camp_latitude || 40.7128),
                 camp_longitude: Number(cfg.camp_longitude || -74.0060),
@@ -273,6 +274,33 @@ export default function SpawnConfigTab() {
                         <span>30s — Fast</span>
                         <span>2m</span>
                         <span>15m — Slow</span>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-br from-cyan-50 to-white p-4 border border-cyan-200">
+                    <Label className="text-base text-slate-900 font-bold">Pokéstop reach distance</Label>
+                    <p className="text-xs text-slate-500 mb-3">
+                        How close a camper must physically be to spin the Pokéstop. Default 3 m (~10 ft) for that real "walk up to it" feel. Bump to 5-8 m if GPS gets jittery in dense tree cover or under awnings.
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="range"
+                            min="2"
+                            max="15"
+                            step="1"
+                            value={Number(cfg.pokestop_engage_meters ?? 3)}
+                            onChange={(e) => setCfg({ ...cfg, pokestop_engage_meters: e.target.value })}
+                            className="flex-1 h-2 rounded-full accent-cyan-500"
+                            data-testid="pokestop-engage-slider"
+                        />
+                        <div className="w-24 text-right font-heading text-xl font-bold text-slate-900 tabular-nums" data-testid="pokestop-engage-value">
+                            {Number(cfg.pokestop_engage_meters ?? 3)}m / {Math.round(Number(cfg.pokestop_engage_meters ?? 3) * 3.281)}ft
+                        </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-0.5 uppercase tracking-widest">
+                        <span>2m — Tight</span>
+                        <span>3m — 10 ft</span>
+                        <span>15m — Loose</span>
                     </div>
                 </div>
 

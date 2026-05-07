@@ -770,3 +770,53 @@ Three pending items from the previous handoff, all shipped and tested.
 - bulk-grant: switch sequential awaits to `asyncio.gather` if camp grows past ~50/group.
 - Stationary threshold (15 min) currently hardcoded — surface as SpawnConfig field if camp wants tunable.
 
+
+
+## 2026-05-07 — Iteration 24 — Pokéstop proximity gate + real visual
+
+User feedback: "they have to be within 10 feet of it" + "its just a dot on the map nothing special".
+
+### Shipped ✅
+
+**Backend — proximity gate**
+- New `SpawnConfig.pokestop_engage_meters: float = 3.0` (~10 ft default, admin-tunable 1–15 m).
+- `/api/pin/spin/{pin_id}` now reads the camper's last position from `db.camper_positions` and returns:
+  - **409** "We don't have your location yet" when no position has been written.
+  - **409** "Your location looks stale" when last position > 60 s old.
+  - **403** "Too far to spin — walk closer (X ft away, need to be within Y ft)" when distance > engage radius.
+  - **200 / 429** otherwise (success or cooldown).
+- Cooldown default lowered from 5 min → **2 min** (`pokestop_cooldown_seconds: 120`). Both cooldown and engage distance read live from SpawnConfig on every spin via `_pokestop_cooldown_sec()` / `_pokestop_engage_m()`.
+- `/api/camp-center` (the camper-facing config) now exposes both `pokestop_engage_meters` and `pokestop_cooldown_seconds` so the frontend can client-side gate too.
+
+**Frontend — real Pokéstop visual**
+- New `/app/frontend/src/components/PokestopMarker.jsx` — renders via `OverlayView` (replaces the flat blue `<Marker>` circle):
+  - Glowing rotating cyan **2.5D cube** (Pokémon-GO Pokéstop reference) with inner gem cross, white sparkles, and a vertical light beam from the ground.
+  - Pulsing ground halo when ready + in-range.
+  - Three visual states with distinct testids:
+    - `pokestop-marker-tappable` → cyan, spinning, gold "TAP TO SPIN!" pill bouncing.
+    - `pokestop-marker-out-of-range` → desaturated, slow wobble, white pill "X ft · walk closer (10 ft)".
+    - `pokestop-marker-cooldown` → grey, frozen, dark pill "Ready in 1m23s" (live-tick every second).
+  - Pin name in a small dark uppercase label above the cube ("DINING HALL").
+- `MapPage.jsx` swaps the `<Marker>` for `<OverlayView><PokestopMarker .../></OverlayView>`. Computes per-pin distance from `myLocation`. Gates the click client-side too — if the camper taps an out-of-range stop on a real iPad, the toast fires instantly (no server round-trip needed).
+
+**Admin tuning**
+- New "Pokéstop reach distance" slider in Spawn Config tab (`data-testid='pokestop-engage-slider'`, range 2–15 m, step 1 m). Live readout shows both meters and feet ("3m / 10ft").
+- Existing "Pokéstop cooldown" slider preserved (default now 120 s).
+
+### Verified via curl
+- Far position (≈500 m away) → `403 "Too far to spin — walk closer (1823 ft away, need to be within 10 ft)"`
+- Within 10 ft → `200 {"ok":true,"balls":5,...}`
+- Spin again immediately → `429 "Pokéstop on cooldown — try again in 1m59s"`
+
+### Files added
+- `/app/frontend/src/components/PokestopMarker.jsx`
+
+### Files modified
+- `/app/backend/server.py` — `pokestop_engage_meters` field, `_pokestop_engage_m()` reader, proximity check in `/pin/spin`, exposed both fields on `/camp-center`.
+- `/app/frontend/src/pages/MapPage.jsx` — PokestopMarker import + OverlayView usage, `pokestopEngageM` state pulled from `/camp-center`, client-side proximity guard in `spinPokestop`.
+- `/app/frontend/src/pages/admin/SpawnConfigTab.jsx` — Pokéstop reach slider with feet readout.
+
+### Notes
+- 10 ft (3 m) is tight — if directors see GPS jitter under tree cover, the new "Pokéstop reach distance" slider lets them dial up to 15 m without a redeploy.
+- `myLocation` in MapPage uses `watchPosition` which already handles continuous updates, so the cube's "TAP TO SPIN!" state pops the moment a kid walks into range.
+

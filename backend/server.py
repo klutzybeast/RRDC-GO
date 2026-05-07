@@ -182,6 +182,10 @@ class SpawnConfig(BaseModel):
     # Per-camper cooldown between spinning the same pokestop (seconds).
     # Default 120s (2 minutes). Director can raise it for slower-paced games.
     pokestop_cooldown_seconds: int = 120
+    # Max distance (meters) a camper must be within to spin a pokestop.
+    # Default 3 m (~10 ft) — Pokemon-GO-style proximity gating. Bump to 5-8 m
+    # if GPS is too jittery in dense tree cover.
+    pokestop_engage_meters: float = 3.0
 
 
 class CamperOut(BaseModel):
@@ -2189,6 +2193,8 @@ async def get_camp_center(user=Depends(get_current_user)):
         "default_zoom": int(cfg.get("camp_default_zoom", 18)),
         "catch_radius_meters": int(cfg.get("catch_radius_meters", 40)),
         "catch_rates": cfg.get("catch_rates") or CATCH_RATES,
+        "pokestop_engage_meters": float(cfg.get("pokestop_engage_meters", 3.0)),
+        "pokestop_cooldown_seconds": int(cfg.get("pokestop_cooldown_seconds", POKESTOP_COOLDOWN_SEC)),
     }
 
 
@@ -3144,11 +3150,39 @@ async def _pokestop_cooldown_sec() -> int:
     return POKESTOP_COOLDOWN_SEC
 
 
+async def _pokestop_engage_m() -> float:
+    """Read live engage distance (meters) from SpawnConfig. Default 3 m."""
+    cfg = await db.spawn_config.find_one({}, {"_id": 0, "pokestop_engage_meters": 1})
+    if cfg and isinstance(cfg.get("pokestop_engage_meters"), (int, float)):
+        return max(1.0, float(cfg["pokestop_engage_meters"]))
+    return 3.0
+
+
 @api.post("/pin/spin/{pin_id}")
 async def spin_pin(pin_id: str, user=Depends(get_current_user)):
     pin = await db.map_pins.find_one({"id": pin_id, "active": True}, {"_id": 0})
     if not pin:
         raise HTTPException(404, "Pokéstop not found")
+    # Proximity gate: camper must be within `pokestop_engage_meters` of the pin.
+    # Uses the last-known position written by /camper/position. If the camper
+    # hasn't reported a position yet (stale > 60 s), reject with a helpful hint.
+    engage_m = await _pokestop_engage_m()
+    pos = await db.camper_positions.find_one({"camper_id": user["id"]}, {"_id": 0})
+    if not pos:
+        raise HTTPException(409, "We don't have your location yet — wait a few seconds and try again")
+    try:
+        last_at = datetime.fromisoformat(pos.get("updated_at"))
+        age_s = (now_utc() - last_at).total_seconds()
+    except Exception:
+        age_s = 99999
+    if age_s > 60:
+        raise HTTPException(409, "Your location looks stale — move a step and try again")
+    dlat = (float(pin["latitude"]) - float(pos["latitude"])) * 111_111.0
+    dlng = (float(pin["longitude"]) - float(pos["longitude"])) * 111_111.0 * math.cos(math.radians(float(pos["latitude"])))
+    dist_m = (dlat * dlat + dlng * dlng) ** 0.5
+    if dist_m > engage_m:
+        feet = int(round(dist_m * 3.281))
+        raise HTTPException(403, f"Too far to spin — walk closer ({feet} ft away, need to be within {int(round(engage_m * 3.281))} ft)")
     cooldown_sec = await _pokestop_cooldown_sec()
     last = await db.pin_spins.find_one(
         {"camper_id": user["id"], "pin_id": pin_id}, {"_id": 0}, sort=[("spun_at", -1)]

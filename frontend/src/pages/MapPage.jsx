@@ -23,6 +23,7 @@ import BuddyStrip from "../components/BuddyStrip";
 import GroupCampersOverlay from "../components/GroupCampersOverlay";
 import RaidsOverlay from "../components/RaidsOverlay";
 import MuteToggle from "../components/MuteToggle";
+import PokestopMarker from "../components/PokestopMarker";
 import { sfx } from "../lib/soundFx";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary, isSoundEnabled, setSoundEnabled } from "../lib/sounds";
@@ -51,6 +52,7 @@ export default function MapPage() {
     const nav = useNavigate();
     const [spawns, setSpawns] = useState([]);
     const [catchRadius, setCatchRadius] = useState(DEFAULT_CATCH_RADIUS_METERS);
+    const [pokestopEngageM, setPokestopEngageM] = useState(3);
     const [enabled, setEnabled] = useState(true);
     const [pins, setPins] = useState([]);
     const [center, setCenter] = useState({ lat: 40.6396, lng: -73.6665 });
@@ -154,6 +156,17 @@ export default function MapPage() {
     }, [refreshPokestopStatus]);
 
     const spinPokestop = React.useCallback(async (pin) => {
+        // Client-side proximity guard — gives instant feedback without a server roundtrip.
+        // The backend re-checks too, so this is purely UX.
+        if (myLocation) {
+            const dist = metersBetween({ lat: myLocation.lat, lng: myLocation.lng }, { lat: pin.latitude, lng: pin.longitude });
+            if (isFinite(dist) && dist > pokestopEngageM) {
+                const feet = Math.round(dist * 3.281);
+                const needFt = Math.round(pokestopEngageM * 3.281);
+                toast.error(`Walk closer — ${feet} ft away (need to be within ${needFt} ft)`);
+                return;
+            }
+        }
         try {
             const r = await userApi.post(`/pin/spin/${pin.id}`);
             const balls = r.data.balls || 0;
@@ -169,7 +182,7 @@ export default function MapPage() {
             const msg = e?.response?.data?.detail || "Could not spin Pokéstop";
             toast.error(msg);
         }
-    }, [refreshPokestopStatus, refreshWallet]);
+    }, [refreshPokestopStatus, refreshWallet, myLocation, pokestopEngageM]);
 
     // Auto-claim daily bonus on mount
     useEffect(() => {
@@ -279,6 +292,7 @@ export default function MapPage() {
                 if (r.data.default_zoom) setZoom(r.data.default_zoom);
             }
             if (r.data?.catch_radius_meters) setCatchRadius(Number(r.data.catch_radius_meters));
+            if (r.data?.pokestop_engage_meters) setPokestopEngageM(Number(r.data.pokestop_engage_meters));
         }).catch(() => {});
     }, []);
 
@@ -487,21 +501,24 @@ export default function MapPage() {
                     {pins.map((p) => {
                         const status = pokestopStatus[p.id];
                         const ready = !status || status.ready;
+                        const distM = myLocation
+                            ? metersBetween({ lat: myLocation.lat, lng: myLocation.lng }, { lat: p.latitude, lng: p.longitude })
+                            : null;
                         return (
-                            <Marker
+                            <OverlayView
                                 key={p.id}
                                 position={{ lat: p.latitude, lng: p.longitude }}
-                                title={`${p.name}${ready ? " — tap to spin!" : " — cooling down"}`}
-                                onClick={() => spinPokestop(p)}
-                                icon={{
-                                    path: window.google?.maps?.SymbolPath?.CIRCLE,
-                                    scale: ready ? 8 : 6,
-                                    fillColor: ready ? "#3B82F6" : "#94A3B8",
-                                    fillOpacity: ready ? 0.85 : 0.45,
-                                    strokeWeight: ready ? 2 : 1,
-                                    strokeColor: ready ? "#1D4ED8" : "#64748B",
-                                }}
-                            />
+                                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                            >
+                                <PokestopMarker
+                                    name={p.name}
+                                    ready={ready}
+                                    nextReadyAtIso={status?.next_ready_at}
+                                    distanceM={distM}
+                                    engageM={pokestopEngageM}
+                                    onSpin={() => spinPokestop(p)}
+                                />
+                            </OverlayView>
                         );
                     })}
                     {/* Same-group peer campers (kid-safe: first-name only, admin-gated) */}
