@@ -179,6 +179,9 @@ class SpawnConfig(BaseModel):
     trade_proximity_m: float = 30.0
     # Maximum trades any one camper can complete in a calendar day.
     trade_daily_cap: int = 3
+    # Per-camper cooldown between spinning the same pokestop (seconds).
+    # Default 120s (2 minutes). Director can raise it for slower-paced games.
+    pokestop_cooldown_seconds: int = 120
 
 
 class CamperOut(BaseModel):
@@ -3122,7 +3125,7 @@ async def list_candies(user=Depends(get_current_user)):
 
 # --- Pokéstops cooldown + items ---
 
-POKESTOP_COOLDOWN_SEC = 300  # 5 minutes
+POKESTOP_COOLDOWN_SEC = 120  # default 2 minutes — overridable via SpawnConfig.pokestop_cooldown_seconds
 POKESTOP_BALL_MIN, POKESTOP_BALL_MAX = 3, 5
 RAZZ_BERRY_DROP_RATE = 0.30  # 30% chance per spin
 RAZZ_BERRY_MIN, RAZZ_BERRY_MAX = 1, 2
@@ -3132,20 +3135,31 @@ RAZZ_BERRY_MULT = 1.3        # +30% catch retention multiplier on the next throw
 LUCKY_EGG_DURATION_MIN = 30  # 2× pokeball catch reward for 30 min
 
 
+async def _pokestop_cooldown_sec() -> int:
+    """Read the live cooldown from SpawnConfig (admin-tunable). Falls back to
+    the module default if the config doc hasn't been written yet."""
+    cfg = await db.spawn_config.find_one({}, {"_id": 0, "pokestop_cooldown_seconds": 1})
+    if cfg and isinstance(cfg.get("pokestop_cooldown_seconds"), (int, float)):
+        return max(10, int(cfg["pokestop_cooldown_seconds"]))
+    return POKESTOP_COOLDOWN_SEC
+
+
 @api.post("/pin/spin/{pin_id}")
 async def spin_pin(pin_id: str, user=Depends(get_current_user)):
     pin = await db.map_pins.find_one({"id": pin_id, "active": True}, {"_id": 0})
     if not pin:
         raise HTTPException(404, "Pokéstop not found")
+    cooldown_sec = await _pokestop_cooldown_sec()
     last = await db.pin_spins.find_one(
         {"camper_id": user["id"], "pin_id": pin_id}, {"_id": 0}, sort=[("spun_at", -1)]
     )
     if last:
         elapsed = (now_utc() - datetime.fromisoformat(last["spun_at"])).total_seconds()
-        if elapsed < POKESTOP_COOLDOWN_SEC:
-            mins = max(1, int((POKESTOP_COOLDOWN_SEC - elapsed) // 60))
-            secs = int((POKESTOP_COOLDOWN_SEC - elapsed) % 60)
-            raise HTTPException(429, f"Pokéstop on cooldown — try again in {mins}m{secs}s")
+        if elapsed < cooldown_sec:
+            mins = int((cooldown_sec - elapsed) // 60)
+            secs = int((cooldown_sec - elapsed) % 60)
+            label = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+            raise HTTPException(429, f"Pokéstop on cooldown — try again in {label}")
     # Roll rewards
     balls = random.randint(POKESTOP_BALL_MIN, POKESTOP_BALL_MAX)
     items = {}
@@ -3170,7 +3184,7 @@ async def spin_pin(pin_id: str, user=Depends(get_current_user)):
         "balls": balls,
         "items": items,
     })
-    return {"ok": True, "balls": balls, "items": items, "next_available_at": (now_utc() + timedelta(seconds=POKESTOP_COOLDOWN_SEC)).isoformat()}
+    return {"ok": True, "balls": balls, "items": items, "next_available_at": (now_utc() + timedelta(seconds=cooldown_sec)).isoformat()}
 
 
 @api.get("/inventory")
@@ -3251,6 +3265,7 @@ async def pokestops_status(user=Depends(get_current_user)):
         pins.append(p["id"])
     if not pins:
         return out
+    cooldown_sec = await _pokestop_cooldown_sec()
     cur = db.pin_spins.find(
         {"camper_id": user["id"], "pin_id": {"$in": pins}}, {"_id": 0, "pin_id": 1, "spun_at": 1}
     ).sort("spun_at", -1)
@@ -3265,9 +3280,9 @@ async def pokestops_status(user=Depends(get_current_user)):
         next_ready = None
         if last_iso:
             elapsed = (now_iso - datetime.fromisoformat(last_iso)).total_seconds()
-            if elapsed < POKESTOP_COOLDOWN_SEC:
+            if elapsed < cooldown_sec:
                 ready = False
-                next_ready = (datetime.fromisoformat(last_iso) + timedelta(seconds=POKESTOP_COOLDOWN_SEC)).isoformat()
+                next_ready = (datetime.fromisoformat(last_iso) + timedelta(seconds=cooldown_sec)).isoformat()
         out.append({"pin_id": pid, "ready": ready, "next_ready_at": next_ready})
     return out
 

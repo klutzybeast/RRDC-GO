@@ -27,6 +27,7 @@ export default function SpawnConfigTab() {
                 active_hours_end: Number(cfg.active_hours_end),
                 spawn_ttl_seconds: Number(cfg.spawn_ttl_seconds),
                 catch_radius_meters: Number(cfg.catch_radius_meters ?? 40),
+                pokestop_cooldown_seconds: Math.max(10, Number(cfg.pokestop_cooldown_seconds ?? 120)),
                 featured_weight_multiplier: Number(cfg.featured_weight_multiplier ?? 10),
                 camp_latitude: Number(cfg.camp_latitude || 40.7128),
                 camp_longitude: Number(cfg.camp_longitude || -74.0060),
@@ -240,6 +241,38 @@ export default function SpawnConfigTab() {
                         <span>10 m — Hard</span>
                         <span>40 m</span>
                         <span>80 m — Easy</span>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-white p-4 border border-emerald-200">
+                    <Label className="text-base text-slate-900 font-bold">Pokéstop cooldown</Label>
+                    <p className="text-xs text-slate-500 mb-3">
+                        How long each camper must wait before spinning the SAME Pokéstop again. Each map pin acts as a Pokéstop — campers tap it to grab 3-5 Pokéballs (and a chance at razz berries / lucky eggs).
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="range"
+                            min="30"
+                            max="900"
+                            step="30"
+                            value={Number(cfg.pokestop_cooldown_seconds ?? 120)}
+                            onChange={(e) => setCfg({ ...cfg, pokestop_cooldown_seconds: e.target.value })}
+                            className="flex-1 h-2 rounded-full accent-emerald-500"
+                            data-testid="pokestop-cooldown-slider"
+                        />
+                        <div className="w-20 text-right font-heading text-xl font-bold text-slate-900 tabular-nums" data-testid="pokestop-cooldown-value">
+                            {(() => {
+                                const s = Number(cfg.pokestop_cooldown_seconds ?? 120);
+                                if (s < 60) return `${s}s`;
+                                const m = Math.floor(s / 60), r = s % 60;
+                                return r ? `${m}m${r}s` : `${m}m`;
+                            })()}
+                        </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-0.5 uppercase tracking-widest">
+                        <span>30s — Fast</span>
+                        <span>2m</span>
+                        <span>15m — Slow</span>
                     </div>
                 </div>
 
