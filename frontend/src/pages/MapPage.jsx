@@ -27,6 +27,8 @@ import PokestopMarker from "../components/PokestopMarker";
 import { sfx } from "../lib/soundFx";
 import pokemonGoMapStyle from "../lib/pokemonGoMapStyle";
 import { tryPlaySpawn, tryPlayLegendary } from "../lib/sounds";
+import { musicStart, musicStop, musicIsMuted } from "../lib/music";
+import { isMuted } from "../lib/soundFx";
 import { useWallet } from "../hooks/useWallet";
 import { toast } from "sonner";
 
@@ -155,6 +157,37 @@ export default function MapPage() {
     const [streak, setStreak] = useState(null);
     const refreshStreak = React.useCallback(() => {
         userApi.get("/streak").then((r) => setStreak(r.data)).catch(() => {});
+    }, []);
+
+    // Start the camp background music once the kid lands on the map.
+    // iOS Safari requires a user gesture before audio plays, so we kick it
+    // off on the first pointerdown / touchstart anywhere in the map page —
+    // the existing audio-unlock listener in soundFx.js takes care of resuming
+    // the AudioContext, but the music scheduler needs an explicit start.
+    useEffect(() => {
+        // Sync music mute with global mute on mount so toggling SFX off
+        // also silences music.
+        const startIfAllowed = () => {
+            if (!isMuted() && !musicIsMuted()) musicStart();
+        };
+        const onFirstGesture = () => {
+            startIfAllowed();
+            window.removeEventListener("pointerdown", onFirstGesture);
+            window.removeEventListener("touchstart", onFirstGesture);
+            window.removeEventListener("keydown", onFirstGesture);
+        };
+        // Try immediately in case audio is already unlocked from a previous page.
+        startIfAllowed();
+        window.addEventListener("pointerdown", onFirstGesture, { passive: true });
+        window.addEventListener("touchstart", onFirstGesture, { passive: true });
+        window.addEventListener("keydown", onFirstGesture);
+        return () => {
+            window.removeEventListener("pointerdown", onFirstGesture);
+            window.removeEventListener("touchstart", onFirstGesture);
+            window.removeEventListener("keydown", onFirstGesture);
+            // Stop on unmount so the music doesn't keep playing on Collection / AR pages.
+            musicStop({ fade: 0.4 });
+        };
     }, []);
     useEffect(() => {
         refreshStreak();
@@ -675,7 +708,7 @@ export default function MapPage() {
             </button>
 
             {/* Top bar */}
-            <div className={`absolute top-2 sm:top-3 left-1.5 sm:left-3 right-1.5 sm:right-3 flex items-center justify-between gap-1.5 sm:gap-2 z-10 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
+            <div className={`absolute top-2 sm:top-3 left-1.5 sm:left-3 right-1.5 sm:right-3 flex items-center justify-between gap-1.5 sm:gap-2 z-30 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
                 <div className="relative pointer-events-auto">
                     <button
                         onClick={() => setShowAccountMenu((v) => !v)}
