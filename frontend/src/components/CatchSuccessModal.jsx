@@ -55,10 +55,18 @@ export default function CatchSuccessModal({ open, result, onClose, onGoToCollect
                             </h2>
                         </div>
 
-                        <div className={`mt-4 relative rounded-[1.5rem] overflow-hidden p-4 rarity-${p.rarity || "common"}`}>
-                            <div className="aspect-square w-full max-h-56 mx-auto flex items-center justify-center">
+                        <div className={`mt-4 relative rounded-[1.5rem] overflow-hidden p-3 rarity-${p.rarity || "common"}`}>
+                            {/* Image container: tall enough for full-body Pokemon
+                                without cropping. min-h ensures small Pokemon don't
+                                collapse the box; max-h caps it on huge screens. */}
+                            <div className="w-full mx-auto flex items-center justify-center" style={{ minHeight: "16rem", maxHeight: "60vh" }}>
                                 {p.image_data_url ? (
-                                    <img src={p.image_data_url} alt={p.name} className="max-h-full max-w-full drop-shadow-2xl object-contain" />
+                                    <img
+                                        src={p.image_data_url}
+                                        alt={p.name}
+                                        className="max-h-[60vh] max-w-full w-auto h-auto drop-shadow-2xl object-contain"
+                                        style={{ display: "block" }}
+                                    />
                                 ) : (
                                     <div className="w-32 h-32 rounded-full bg-white/40" />
                                 )}

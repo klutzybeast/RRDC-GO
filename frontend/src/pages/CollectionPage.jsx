@@ -160,9 +160,9 @@ export default function CollectionPage() {
                                 className="bg-white rounded-3xl overflow-hidden border border-slate-200 text-left shadow-sm hover:shadow-lg transition-shadow"
                                 data-testid={`bank-card-${p.pokemon_id}`}
                             >
-                                <div className={`aspect-square flex items-center justify-center rarity-${p.rarity}`}>
+                                <div className={`aspect-square flex items-center justify-center rarity-${p.rarity} p-2`}>
                                     {p.image_data_url ? (
-                                        <img src={p.image_data_url} alt={p.name} className="max-w-[80%] max-h-[80%] drop-shadow-xl" />
+                                        <img src={p.image_data_url} alt={p.name} className="w-full h-full object-contain drop-shadow-xl" />
                                     ) : (
                                         <div className="w-16 h-16 rounded-full bg-white/40" />
                                     )}
@@ -196,9 +196,14 @@ export default function CollectionPage() {
                         className="bg-white rounded-[2rem] p-6 max-w-md w-full"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className={`rounded-2xl p-6 rarity-${selected.rarity} aspect-square flex items-center justify-center`}>
+                        <div className={`rounded-2xl p-4 rarity-${selected.rarity} flex items-center justify-center`} style={{ minHeight: "16rem", maxHeight: "55vh" }}>
                             {selected.image_data_url && (
-                                <img src={selected.image_data_url} alt={selected.name} className="max-w-[80%] max-h-[80%] drop-shadow-2xl" />
+                                <img
+                                    src={selected.image_data_url}
+                                    alt={selected.name}
+                                    className="max-w-full w-auto h-auto drop-shadow-2xl object-contain"
+                                    style={{ maxHeight: "50vh", display: "block" }}
+                                />
                             )}
                         </div>
                         <div className="mt-4 text-center">
