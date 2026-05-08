@@ -81,11 +81,13 @@ export default function ARPage() {
     const targetSpawnId = params.get("spawn");
 
     const videoRef = useRef(null);
-    // Persist camera preference. iOS Safari re-prompts inside iframes / on
-    // PWA reinstall, but on a real iPad PWA the localStorage value is enough
-    // for us to NOT auto-call getUserMedia after the user has said "Skip".
+    // Camera is OPT-IN. Default OFF so kids see the cheerful cartoon
+    // background (ARFallbackScene) on every catch attempt without iOS
+    // pestering them with a permission prompt. They can flip it on by
+    // tapping the camera icon in the top-right; once they do, the choice
+    // sticks across catches via localStorage.
     const [cameraOn, setCameraOnRaw] = useState(() => {
-        try { return localStorage.getItem("rrdc:cameraOn") !== "0"; } catch { return true; }
+        try { return localStorage.getItem("rrdc:cameraOn") === "1"; } catch { return false; }
     });
     const setCameraOn = useCallback((v) => {
         const next = typeof v === "function" ? v(cameraOn) : v;
@@ -95,8 +97,7 @@ export default function ARPage() {
     const { status: camStatus, err: camErr, start: startCam, stop: stopCam } = useCamera(videoRef, cameraOn);
 
     // If iOS denies the prompt (or the browser doesn't support camera at all),
-    // remember that so we don't try to start it again on the next AR visit.
-    // The user can re-enable manually with the camera toggle button.
+    // remember "off" so we don't try to start it again on the next AR visit.
     useEffect(() => {
         if (camStatus === "denied" || camStatus === "unavailable") {
             try { localStorage.setItem("rrdc:cameraOn", "0"); } catch { /* noop */ }
