@@ -1103,6 +1103,67 @@ async def admin_delete_pokemon(pokemon_id: str, admin=Depends(get_current_admin)
     return {"ok": True}
 
 
+@api.post("/admin/pokemon/bulk-upload-one")
+async def admin_bulk_upload_one(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    rarity: str = Form("common"),
+    type: str = Form("normal"),
+    description: str = Form(""),
+    active: bool = Form(True),
+    featured: bool = Form(True),
+    admin=Depends(get_current_admin),
+):
+    """Single-file bulk upload variant. The frontend loops over its staged
+    images and calls this endpoint ONE AT A TIME so each network request
+    stays under the production gateway's body-size + timeout limits. The
+    legacy multi-file `/admin/pokemon/bulk-upload` is kept for backward
+    compatibility but is no longer the default frontend path."""
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(400, "Only JPEG, PNG, or WEBP allowed")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 8MB)")
+    valid_rarities = {"common", "uncommon", "rare", "legendary"}
+    valid_types = {"normal", "fire", "water", "grass", "electric", "rock", "psychic", "dark", "ice", "ghost", "fighting"}
+    rarity_v = (rarity or "common").strip().lower()
+    if rarity_v not in valid_rarities:
+        rarity_v = "common"
+    type_v = (type or "normal").strip().lower()
+    if type_v not in valid_types:
+        type_v = "normal"
+    try:
+        data = _remove_white_background(data)
+        mime = "image/png"
+    except Exception as e:
+        logger.warning(f"bulk-upload-one bg-strip failed for {file.filename}: {e}")
+        mime = file.content_type
+    b64 = base64.b64encode(data).decode()
+    data_url = f"data:{mime};base64,{b64}"
+    last = await db.pokemon.find_one({}, sort=[("slot_number", -1)])
+    next_slot = (last.get("slot_number", 0) if last else 0) + 1
+    base_name = (name or "").strip() or (file.filename or f"Pokemon {next_slot}").rsplit(".", 1)[0]
+    base_name = base_name.replace("_", " ").replace("-", " ").strip()[:60] or f"Pokemon {next_slot}"
+    desc = (description or "").strip() or f"Uploaded by admin on {now_utc().date().isoformat()}"
+    doc = {
+        "id": str(uuid.uuid4()),
+        "slot_number": next_slot,
+        "name": base_name,
+        "power_level": 150 if featured else 100,
+        "rarity": rarity_v,
+        "type": type_v,
+        "description": desc,
+        "image_data_url": data_url,
+        "active": bool(active),
+        "featured": bool(featured),
+        "created_at": now_utc().isoformat(),
+    }
+    await db.pokemon.insert_one(doc)
+    return {"ok": True, "pokemon": pokemon_to_out(doc)}
+
+
 @api.post("/admin/pokemon/bulk-upload")
 async def admin_bulk_upload_pokemon(
     files: List[UploadFile] = File(...),

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { adminApi, formatApiError } from "../../lib/api";
+import { compressImage } from "../../lib/imageCompress";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -65,6 +66,7 @@ export default function PokemonTab() {
     const [bulkFeatured, setBulkFeatured] = useState(true);
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResult, setBulkResult] = useState(null);
+    const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
     const fileRef = useRef(null);
     const bulkFileRef = useRef(null);
 
@@ -189,42 +191,69 @@ export default function PokemonTab() {
         }
         setBulkRunning(true);
         setBulkResult(null);
-        try {
-            const fd = new FormData();
-            bulkItems.forEach((it) => {
-                fd.append("files", it.file);
-                fd.append("names", it.name.trim());
-                fd.append("rarities", it.rarity);
-                fd.append("types", it.type || "normal");
-                fd.append("descriptions", it.description || "");
-            });
-            fd.append("active", String(bulkActive));
-            fd.append("featured", String(bulkFeatured));
-            const res = await adminApi.post("/admin/pokemon/bulk-upload", fd, {
-                headers: { "Content-Type": "multipart/form-data" },
-                timeout: 180000,
-            });
-            setBulkResult(res.data);
-            toast.success(`Created ${res.data.created_count} • Failed ${res.data.failed_count}`);
-            // Free the preview URLs and clear the staging list on success
-            bulkItems.forEach((it) => it.preview && URL.revokeObjectURL(it.preview));
+        setBulkProgress({ done: 0, total: bulkItems.length });
+        // Upload ONE AT A TIME. Production gateways frequently reject large
+        // multipart bodies (>30 MB) or long-running requests (>30 s) with
+        // 503 — looping per-image keeps each request small + fast and lets
+        // a single failure not destroy the rest of the batch.
+        const created = [];
+        const failed = [];
+        const remaining = [];
+        for (let i = 0; i < bulkItems.length; i++) {
+            const it = bulkItems[i];
+            try {
+                // Compress before each upload so iPad photos don't blow up the
+                // request body. Skip if already small.
+                const file = await compressImage(it.file);
+                const fd = new FormData();
+                fd.append("file", file);
+                fd.append("name", it.name.trim());
+                fd.append("rarity", it.rarity);
+                fd.append("type", it.type || "normal");
+                fd.append("description", it.description || "");
+                fd.append("active", String(bulkActive));
+                fd.append("featured", String(bulkFeatured));
+                const res = await adminApi.post("/admin/pokemon/bulk-upload-one", fd, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                    timeout: 60000,
+                });
+                created.push(res.data.pokemon);
+                if (it.preview) URL.revokeObjectURL(it.preview);
+            } catch (e) {
+                failed.push({ name: it.name, error: formatApiError(e) });
+                remaining.push(it); // keep failed items so user can retry without re-picking
+            }
+            setBulkProgress({ done: i + 1, total: bulkItems.length });
+        }
+        setBulkResult({ created_count: created.length, failed_count: failed.length, created, failed });
+        if (failed.length === 0) {
+            toast.success(`Uploaded ${created.length} ${created.length === 1 ? "Pokemon" : "Pokemon"}!`);
             setBulkItems([]);
             try { sessionStorage.removeItem(BULK_STORAGE_KEY); } catch { /* noop */ }
             if (bulkFileRef.current) bulkFileRef.current.value = "";
-            load();
-        } catch (e) { toast.error(formatApiError(e)); }
-        finally { setBulkRunning(false); }
+        } else {
+            toast.error(`${created.length} uploaded · ${failed.length} failed — failed items remain in the list to retry.`);
+            // Keep ONLY the failed items so the director can fix names/files and retry
+            setBulkItems(remaining);
+        }
+        load();
+        setBulkRunning(false);
     };
 
     const uploadImage = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file || !editing) return;
+        const fileRaw = e.target.files?.[0];
+        if (!fileRaw || !editing) return;
         setUploading(true);
         try {
+            // Shrink large iPad photos before sending — keeps requests under
+            // production gateway body-size limits and the Pokemon data-url
+            // small enough to push to every camper's iPad without lag.
+            const file = await compressImage(fileRaw);
             const fd = new FormData();
             fd.append("file", file);
             const res = await adminApi.post(`/admin/pokemon/${editing.id}/image`, fd, {
                 headers: { "Content-Type": "multipart/form-data" },
+                timeout: 60000,
             });
             setEditing(res.data);
             toast.success("Image uploaded");
@@ -639,15 +668,28 @@ export default function PokemonTab() {
                         )}
                     </div>
 
-                    <DialogFooter className="border-t border-slate-100 pt-3">
-                        <Button variant="outline" onClick={() => setBulkOpen(false)} className="rounded-2xl">Close</Button>
+                    <DialogFooter className="border-t border-slate-100 pt-3 flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                        {bulkRunning && bulkProgress.total > 0 && (
+                            <div className="flex-1 flex items-center gap-2" data-testid="bulk-upload-progress">
+                                <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
+                                    <div
+                                        className="h-full bg-river-500 transition-all"
+                                        style={{ width: `${Math.round((bulkProgress.done / Math.max(1, bulkProgress.total)) * 100)}%` }}
+                                    />
+                                </div>
+                                <span className="text-xs font-bold text-slate-600 tabular-nums whitespace-nowrap">
+                                    {bulkProgress.done}/{bulkProgress.total}
+                                </span>
+                            </div>
+                        )}
+                        <Button variant="outline" onClick={() => setBulkOpen(false)} className="rounded-2xl" disabled={bulkRunning}>Close</Button>
                         <Button
                             onClick={runBulkUpload}
                             disabled={bulkRunning || bulkItems.length === 0}
                             className="tactile-btn rounded-2xl bg-river-500 hover:bg-river-600 text-white font-heading"
                             data-testid="bulk-upload-submit"
                         >
-                            {bulkRunning ? "Uploading…" : `Upload ${bulkItems.length || ""}`}
+                            {bulkRunning ? `Uploading ${bulkProgress.done}/${bulkProgress.total}…` : `Upload ${bulkItems.length || ""}`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
