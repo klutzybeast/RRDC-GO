@@ -15,6 +15,20 @@ body {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Eliminate iOS Safari's 300ms double-tap-to-zoom delay on every interactive
+   element. Without this, kids report that buttons "need to be tapped twice"
+   even when user-scalable=no is set. `manipulation` keeps native pinch-zoom
+   on the map while killing the per-tap delay everywhere else. */
+button,
+a,
+[role="button"],
+input,
+textarea,
+select,
+[data-testid] {
+    touch-action: manipulation;
+}
+
 html, body, #root {
     min-height: 100%;
     min-height: 100dvh;
@@ -74,17 +88,26 @@ code {
     }
 }
 
-/* Tactile chunky button shadow (neumorphic) */
+/* Tactile chunky button shadow (neumorphic).
+   Hover styles are gated to devices that actually have a hover-capable
+   pointer (mouse / trackpad). Without this gate, iOS Safari latches the
+   :hover state after the first tap — meaning the button looks pressed but
+   doesn't actually fire `click` until a SECOND tap. Classic iOS bug. */
 .tactile-btn {
     box-shadow: 0 4px 0 rgba(15, 23, 42, 0.15);
     transition: box-shadow 120ms ease, transform 120ms ease;
 }
-.tactile-btn:hover {
-    box-shadow: 0 3px 0 rgba(15, 23, 42, 0.15);
+@media (hover: hover) and (pointer: fine) {
+    .tactile-btn:hover {
+        box-shadow: 0 3px 0 rgba(15, 23, 42, 0.15);
+    }
 }
 .tactile-btn:active {
-    box-shadow: 0 0 0 rgba(15, 23, 42, 0.15);
-    transform: translateY(3px);
+    /* Visual press feedback only — keep the button in place so the touchend
+       event lands inside the original tap target. Translating the button
+       on :active was making fast taps "miss" because the element shifted
+       out from under the finger before touchend fired. */
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.2);
 }
 
 .glass {

@@ -80,6 +80,8 @@ export default function MapPage() {
     const [avatarColors, setAvatarColors] = useState(() => loadAvatarColors(user?.id));
     const [showCustomizer, setShowCustomizer] = useState(false);
     const [legendaryAlert, setLegendaryAlert] = useState(null);
+    const [showAccountMenu, setShowAccountMenu] = useState(false);
+    const [showConfirmLogout, setShowConfirmLogout] = useState(false);
     // Legacy `soundOn` state removed — `<MuteToggle />` now controls audio
     // via the unified `soundFx` module. The old toggle-sound-btn was a
     // duplicate UI control sharing the same localStorage key.
@@ -654,12 +656,38 @@ export default function MapPage() {
 
             {/* Top bar */}
             <div className={`absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
-                <div className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 pointer-events-auto min-w-0" data-testid="camper-badge">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                    <span className="truncate max-w-[34vw] sm:max-w-none">
-                        {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
-                    </span>
-                    <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 ml-1 shrink-0">{user?.group_name}</span>
+                <div className="relative pointer-events-auto">
+                    <button
+                        onClick={() => setShowAccountMenu((v) => !v)}
+                        className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 min-w-0 active:scale-95 transition-transform"
+                        data-testid="camper-badge"
+                    >
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="truncate max-w-[34vw] sm:max-w-none">
+                            {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 shrink-0">{user?.group_name}</span>
+                    </button>
+                    {showAccountMenu && (
+                        <>
+                            {/* Backdrop catches outside taps to close the menu */}
+                            <div
+                                className="fixed inset-0 z-20"
+                                onClick={() => setShowAccountMenu(false)}
+                                aria-hidden="true"
+                            />
+                            <div className="absolute top-full left-0 mt-2 w-48 rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 overflow-hidden z-30" data-testid="account-menu">
+                                <button
+                                    onClick={() => { setShowAccountMenu(false); setShowConfirmLogout(true); }}
+                                    className="w-full text-left px-4 py-3 hover:bg-rose-50 active:bg-rose-100 flex items-center gap-2 text-sm font-bold text-rose-600"
+                                    data-testid="logout-btn"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Sign out
+                                </button>
+                            </div>
+                        </>
+                    )}
                 </div>
                 <div className="flex gap-1.5 sm:gap-2 pointer-events-auto items-center">
                     <BallCounter
@@ -701,11 +729,34 @@ export default function MapPage() {
                         <BackpackIcon className="w-5 h-5" />
                         <span className="hidden xs:inline">Pokedex</span>
                     </button>
-                    <button onClick={handleLogout} className="glass-dark rounded-full p-2.5" aria-label="Logout" data-testid="logout-btn">
-                        <LogOut className="w-5 h-5" />
-                    </button>
                 </div>
             </div>
+
+            {/* Confirm logout dialog — protects against accidental kid taps */}
+            {showConfirmLogout && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="confirm-logout-modal">
+                    <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+                        <div className="font-heading text-xl font-bold text-slate-900 mb-1">Sign out?</div>
+                        <div className="text-sm text-slate-600 mb-4">You'll need to pick your name again next time you play.</div>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => setShowConfirmLogout(false)}
+                                className="px-4 h-11 rounded-2xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700"
+                                data-testid="confirm-logout-cancel"
+                            >
+                                Stay logged in
+                            </button>
+                            <button
+                                onClick={() => { setShowConfirmLogout(false); handleLogout(); }}
+                                className="px-4 h-11 rounded-2xl bg-rose-500 hover:bg-rose-600 font-bold text-white"
+                                data-testid="confirm-logout-confirm"
+                            >
+                                Sign out
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Supervisor challenge banner + Daily challenges + Nearby */}
             <div className={`absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto space-y-2 ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-auto"}`} aria-hidden={showOnboarding}>

@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 24 — verified iOS-tap and logout-off-screen mobile fixes on iPhone 390x844 portrait + iPad 820x1180. Backend smoke 4/4 PASS (inventory/admin pokemon list/bulk-upload-one/groups list). Frontend: camper-badge IS now a <button> with data-testid='camper-badge', opens an account-menu (data-testid='account-menu') containing logout-btn (192x44px tap target — excellent), confirm-logout-modal opens, both confirm-logout-cancel and the entire round-trip flow work. Account-menu opens on the FIRST tap (the double-tap regression is fixed). CSS verified: `touch-action: manipulation` rule present globally, `.tactile-btn:active` has only shadow (no translateY), `.tactile-btn:hover` is gated behind @media (hover: hover). HOWEVER — the action row STILL OVERFLOWS on iPhone 390 portrait. The Pokedex pill (open-collection-btn) is clipped off the right edge: it sits at x=374, width=101, so it ends at x=475 — 85px outside the 390 viewport. document.documentElement.scrollWidth=475 > clientWidth=390 → page horizontally scrolls. The user's ORIGINAL 'logout off-screen' complaint is now reproduced as 'Pokedex off-screen' — moving logout into the dropdown freed space, but the new camper-badge button on the left is 164px wide (it shows full first+last name + group code), pushing the right cluster (44+42+42+42+101 + gaps = ~280px) past the 390-164-margins budget. Visually confirmed in screenshot: 'Pokedex' text is chopped at the viewport edge.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MapPage top action row", "issue": "Pokedex pill (open-collection-btn) overflows right edge on iPhone 390x844 portrait. bbox={x:374, w:101} ends at x=475 (85px clipped). Page scrollWidth=475 vs clientWidth=390 — horizontal scroll appears. Same root-cause class as the 'logout off-screen' bug user originally reported, just shifted to the next-rightmost element.", "selector": "[data-testid='open-collection-btn']", "priority": "HIGH"},
+      {"component": "MapPage camper-badge", "issue": "On iPhone 390 the badge renders 164px wide (full 'Colton Ahern B01' shown). Combined with the right-side 5-icon cluster, the row exceeds 390px. Recommend truncating the badge name harder on phones (e.g., max-w-[28vw] or first-name only) OR hiding the 'Pokedex' label on screens <420px (change `hidden xs:inline` → `hidden sm:inline`). Either fix collapses the row back inside 390px.", "selector": "[data-testid='camper-badge']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Map / iPhone 390 portrait", "issues": ["Visible 'Pokedex' text on the open-collection-btn pill is clipped by the right edge — looks broken to a kid. Either drop the text label on phones or shrink the camper-badge width."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration24.py",
+    "/app/test_reports/pytest/iteration24_results.xml"
+  ],
+  "action_items": [
+    "FRONTEND HIGH: Action row overflows on iPhone 390. Two safe fixes: (1) change open-collection-btn label gate from `hidden xs:inline` to `hidden sm:inline` (text shows only ≥640px), saving ~55px on phones; OR (2) tighten camper-badge truncation — current `max-w-[34vw]` (~133px) plus `${first_name} ${last_name}` + group pill + dot = 164px on 390. Reduce to `max-w-[24vw]` or render only first_name on mobile.",
+    "FRONTEND HIGH: Verify after fix that document.documentElement.scrollWidth === clientWidth (== 390) on iPhone portrait — currently 475."
+  ],
+  "critical_code_review_comments": [
+    "MapPage.jsx line 660-690: camper-badge correctly converted from <div> to <button> with onClick toggling showAccountMenu. account-menu uses fixed-inset backdrop (z-20) + absolute dropdown (z-30) — CORRECT pattern, outside-tap closes it. GOOD.",
+    "MapPage.jsx line 736-759: confirm-logout-modal uses fixed inset-0 z-50 with stay/sign-out buttons at h-11 (44px) — meets HIG. GOOD.",
+    "MapPage.jsx line 666: `max-w-[34vw]` on the camper name span = 133px on 390 viewport; combined with 24px dot + group pill + 16px gap, total badge ~164px. ROOT CAUSE of the residual overflow.",
+    "MapPage.jsx line 730: `<span className='hidden xs:inline'>Pokedex</span>` — the xs breakpoint is 380px (per tailwind.config.js iter_23 audit), so on a 390 phone the label IS shown, making the pill 101px instead of ~50px. Bumping the gate to `sm:inline` (640px) would fix the overflow on every phone.",
+    "index.css line 22-30: `touch-action: manipulation` applied to button/a/[role=button]/inputs/[data-testid] — VERIFIED present in browser stylesheet at runtime. CORRECT iOS double-tap fix.",
+    "index.css line 100-104: `.tactile-btn:hover` is gated by `@media (hover: hover) and (pointer: fine)` — VERIFIED in browser. CORRECT iOS sticky-hover fix.",
+    "index.css line 105-111: `.tactile-btn:active` only changes box-shadow, no translateY — VERIFIED in browser DOM. CORRECT 'finger lifts off button' fix.",
+    "Account-menu logout button measures 192x44 px on iPhone (excellent tap target). Cancel/Confirm buttons in confirm-logout-modal use h-11 (44 px). All meet HIG.",
+    "play-camper-{id} now measures 96x44 px (was 88x36 in iter_23) — iter_23 action item satisfied.",
+    "Geolocation API blocked in iframe — geo-error toast appears on /map and intercepts pointer events on portrait viewports, occasionally blocking testing. Not a real-world problem (production iOS Safari grants geo) but worth noting that the geo-error overlay sits at z-20 and covers a swath of the action row visually."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration24.py (new — 4 endpoints)",
+    "/app/test_reports/pytest/iteration24_results.xml (new)",
+    "/app/test_reports/iteration_24.json (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 PASS in 5s — inventory shape, admin pokemon list, bulk-upload-one PNG, groups list)",
+    "frontend": "iOS-fix verifications: 100% (touch-action, hover gate, no translateY, ONE-tap menu open, modal flow). Layout: 70% — action row STILL OVERFLOWS by 85px on iPhone 390 portrait (Pokedex pill clipped)."
+  },
+  "test_credentials": "Admin: admin / Camp1993. Camper login: POST /api/camper/login {camper_id} from GET /api/groups/B01/campers (used campers[0] = Colton Ahern).",
+  "seed_data_creation": "None — used existing seed data (B01 group, Colton Ahern camper).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The dropdown-logout flow + iOS-tap CSS fixes are implemented correctly and verified. The remaining bug is purely a layout issue: on iPhone 390 portrait, the action row overflows by ~85px because (a) camper-badge shows full first+last+group at 164px and (b) the Pokedex pill shows its text label on screens ≥380px (xs breakpoint). Recommend bumping the Pokedex label visibility gate from `xs:inline` to `sm:inline` in MapPage.jsx line 730 — that single change collapses the overflow without touching the badge. Or shrink the badge name to first-name-only on phones. Re-test by checking document.documentElement.scrollWidth === clientWidth on /map at 390x844. Geo permission is blocked in the iframe so the geo-error toast and the AR catch flow can't be E2E tested — production iOS Safari will not have this issue.",
+  "rca of the issue": "Original bug: logout button pushed off-screen on iPhone 390 because action row had 7 children. Fix moved logout into a dropdown — but at the SAME time the camper area on the left was changed from a non-interactive 90px <div> to a 164px tappable <button> (now shows the full name + group). Net: left side grew ~70px while right side only shrank by ~50px (logout removed). Result: row STILL doesn't fit, just with a different victim element (Pokedex pill instead of logout). Mitigation: shrink either side. The simplest one-line fix is the `xs:inline → sm:inline` swap on the Pokedex span (MapPage.jsx ~line 730), reclaiming ~55px. Confirmed visually in screenshot: 'Pokedex' text chopped at right edge on a real-world phone viewport."
+}
