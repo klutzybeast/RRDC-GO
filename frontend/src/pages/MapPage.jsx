@@ -59,6 +59,17 @@ export default function MapPage() {
     const [myLocation, setMyLocation] = useState(null);
     const [gpsAccuracy, setGpsAccuracy] = useState(null); // meters; from pos.coords.accuracy
     const [inventory, setInventory] = useState(null);
+    // Pull current razz/lucky inventory so the pill in the action row stays
+    // in sync after a pokéstop spin. Polled lightly; spin handler calls
+    // `refreshInventory()` directly for instant feedback.
+    const refreshInventory = React.useCallback(() => {
+        userApi.get("/inventory").then((r) => setInventory(r.data)).catch(() => {});
+    }, []);
+    useEffect(() => {
+        refreshInventory();
+        const t = setInterval(refreshInventory, 20000);
+        return () => clearInterval(t);
+    }, [refreshInventory]);
     const [geoError, setGeoError] = useState("");
     const [geoBlocked, setGeoBlocked] = useState(false);
     const mapRef = useRef(null);
