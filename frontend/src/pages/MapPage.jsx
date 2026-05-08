@@ -13,7 +13,8 @@ import BallCounter from "../components/BallCounter";
 import OutOfBallsModal from "../components/OutOfBallsModal";
 import TrainerAvatar from "../components/TrainerAvatar";
 import TrainerCustomizer, { loadAvatarColors } from "../components/TrainerCustomizer";
-import SupervisorChallenge from "../components/SupervisorChallenge";
+// SupervisorChallenge tracker removed from the map — was visually
+// overpowering for kids and lives in /collection if directors need it.
 import ChallengesCard from "../components/ChallengesCard";
 import NearbyPanel from "../components/NearbyPanel";
 import Minimap from "../components/Minimap";
@@ -765,30 +766,42 @@ export default function MapPage() {
                 </div>
             )}
 
-            {/* Supervisor challenge banner + Daily challenges + Nearby */}
-            <div className={`absolute top-16 left-2 right-2 z-10 sm:left-3 sm:right-3 max-w-md mx-auto space-y-2 ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-auto"}`} aria-hidden={showOnboarding}>
-                <ActiveEventBanner />
-                <SupervisorChallenge compact />
-                <div className="flex justify-end gap-2 flex-wrap">
+            {/* Tools layer — split into a LEFT column (bigger interactive
+                panels: events, buddy, daily challenges) and a RIGHT column
+                (small status pills: streak, nearby, inventory, GPS, mute).
+                The middle of the map stays clear for the avatar + Pokemon.
+                The supervisor weekly tracker has been removed entirely
+                (lived in /collection now if directors need to see progress). */}
+            <div
+                className={`absolute top-16 left-2 right-2 sm:left-3 sm:right-3 z-10 flex items-start justify-between gap-2 sm:gap-3 transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`}
+                aria-hidden={showOnboarding}
+            >
+                {/* LEFT column — bigger interactive panels, stacked. */}
+                <div className="flex flex-col gap-2 items-start pointer-events-auto max-w-[58%] sm:max-w-[44%]">
+                    <ActiveEventBanner />
+                    <BuddyStrip onTap={() => nav("/collection")} />
+                    <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                </div>
+
+                {/* RIGHT column — small status pills, stacked. */}
+                <div className="flex flex-col gap-1.5 sm:gap-2 items-end pointer-events-auto">
                     {streak && (streak.current_streak > 0 || streak.caught_today) && (
                         <motion.div
                             initial={{ scale: 0.85, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            className="relative bg-white/95 backdrop-blur-sm rounded-full px-3 py-2 shadow-lg flex items-center gap-1.5"
+                            className="relative bg-white/95 backdrop-blur-sm rounded-full px-2.5 py-1.5 shadow-lg flex items-center gap-1"
                             data-testid="streak-pill"
                             title={streak.at_risk ? "Catch one today to keep your streak alive!" : "Daily catch streak"}
                         >
                             <motion.span
-                                className="text-base"
+                                className="text-sm"
                                 animate={streak.caught_today ? { scale: [1, 1.18, 1] } : { scale: 1 }}
                                 transition={{ repeat: streak.caught_today ? Infinity : 0, duration: 1.6 }}
                             >🔥</motion.span>
-                            <span className="text-sm font-black text-slate-900 tabular-nums">
+                            <span className="text-xs font-black text-slate-900 tabular-nums">
                                 {streak.current_streak}
                             </span>
-                            <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
-                                d
-                            </span>
+                            <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">d</span>
                             {streak.at_risk && !streak.caught_today && (
                                 <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full px-1.5 h-[18px] min-w-[18px] flex items-center justify-center" data-testid="streak-at-risk">
                                     !
@@ -802,8 +815,6 @@ export default function MapPage() {
                         catchRadius={catchRadius}
                         onPick={openCatchFor}
                     />
-                    <BuddyStrip onTap={() => nav("/collection")} />
-                    <ChallengesCard onRewardClaimed={() => refreshWallet()} />
                     {inventory && (() => {
                         const razz = Number(inventory.items?.razz_berry || 0);
                         const lucky = Number(inventory.items?.lucky_egg || 0);
@@ -812,7 +823,7 @@ export default function MapPage() {
                         if (razz === 0 && lucky === 0 && !razzPending && !luckyActive) return null;
                         return (
                             <div
-                                title="You can use these on the AR catch screen — tap a Pokémon to start, then tap the items button"
+                                title="Use these on the AR catch screen — tap a Pokémon, then tap the items button"
                                 className="flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2 py-1 shadow ring-1 ring-slate-200"
                                 data-testid="map-inventory-pill"
                             >
@@ -832,16 +843,12 @@ export default function MapPage() {
                         );
                     })()}
                     {gpsAccuracy != null && (() => {
-                        // Browser geolocation accuracy: lower = better. Buckets:
-                        //   <=10m → green ("Strong")
-                        //   <=25m → amber ("OK")
-                        //   >25m  → rose ("Weak — move to open sky")
                         const acc = Math.round(gpsAccuracy);
                         const tier = acc <= 10 ? "strong" : acc <= 25 ? "ok" : "weak";
                         const palette = {
-                            strong: { bg: "bg-emerald-500/95", ring: "ring-emerald-200", label: "Strong" },
-                            ok: { bg: "bg-amber-400/95 text-amber-950", ring: "ring-amber-200", label: "OK" },
-                            weak: { bg: "bg-rose-500/95", ring: "ring-rose-200", label: "Weak" },
+                            strong: { bg: "bg-emerald-500/95", ring: "ring-emerald-200" },
+                            ok: { bg: "bg-amber-400/95 text-amber-950", ring: "ring-amber-200" },
+                            weak: { bg: "bg-rose-500/95", ring: "ring-rose-200" },
                         }[tier];
                         return (
                             <div
