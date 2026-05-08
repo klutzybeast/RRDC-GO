@@ -655,18 +655,24 @@ export default function MapPage() {
             </button>
 
             {/* Top bar */}
-            <div className={`absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 z-10 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
+            <div className={`absolute top-2 sm:top-3 left-1.5 sm:left-3 right-1.5 sm:right-3 flex items-center justify-between gap-1.5 sm:gap-2 z-10 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
                 <div className="relative pointer-events-auto">
                     <button
                         onClick={() => setShowAccountMenu((v) => !v)}
-                        className="glass-dark rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-2 min-w-0 active:scale-95 transition-transform"
+                        className="glass-dark rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 min-w-0 active:scale-95 transition-transform"
                         data-testid="camper-badge"
                     >
                         <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                        <span className="truncate max-w-[34vw] sm:max-w-none">
-                            {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                        <span className="truncate max-w-[18vw] sm:max-w-none">
+                            {/* On phones (<640px), show ONLY first name to keep the
+                                top-bar action row inside the viewport. iPad+ shows
+                                the full first+last name. */}
+                            <span className="sm:hidden">{user?.first_name || user?.username || ""}</span>
+                            <span className="hidden sm:inline">
+                                {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                            </span>
                         </span>
-                        <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-2 py-0.5 shrink-0">{user?.group_name}</span>
+                        <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-1.5 sm:px-2 py-0.5 shrink-0">{user?.group_name}</span>
                     </button>
                     {showAccountMenu && (
                         <>
@@ -689,7 +695,7 @@ export default function MapPage() {
                         </>
                     )}
                 </div>
-                <div className="flex gap-1.5 sm:gap-2 pointer-events-auto items-center">
+                <div className="flex gap-1 sm:gap-2 pointer-events-auto items-center">
                     <BallCounter
                         balance={wallet?.balance}
                         delta={ballDelta}
@@ -725,9 +731,10 @@ export default function MapPage() {
                         onClick={() => nav("/collection")}
                         className="glass-dark rounded-full px-3 py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
                         data-testid="open-collection-btn"
+                        aria-label="Pokedex"
                     >
                         <BackpackIcon className="w-5 h-5" />
-                        <span className="hidden xs:inline">Pokedex</span>
+                        <span className="hidden sm:inline">Pokedex</span>
                     </button>
                 </div>
             </div>
