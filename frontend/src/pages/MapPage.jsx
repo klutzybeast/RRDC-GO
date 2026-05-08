@@ -116,12 +116,31 @@ export default function MapPage() {
         if (!myLocation) return;
         if (lastLocRef.current) {
             const moved = metersBetween(lastLocRef.current, myLocation);
-            if (moved >= 1) {
-                // Bearing in degrees (0 = north, clockwise) from prev → current
+            // Avatar bearing is computed from GPS delta direction. Standing
+            // still, raw GPS drift is typically 5-15 m and points in random
+            // directions — that's what was making the avatar "freak out" and
+            // flip 180°. Three guards now:
+            //   1. Ignore moves smaller than 8 m (below the GPS noise floor).
+            //   2. Ignore moves smaller than the reported accuracy (a 20 m
+            //      "move" with ±25 m accuracy is just noise).
+            //   3. Smooth the bearing toward the new value instead of snapping
+            //      so a single jitter spike can't whip the avatar 180°.
+            const accNoise = (typeof gpsAccuracy === "number" && gpsAccuracy > 0) ? gpsAccuracy : 0;
+            if (moved >= Math.max(8, accNoise * 0.7)) {
                 const dy = myLocation.lat - lastLocRef.current.lat;
                 const dx = (myLocation.lng - lastLocRef.current.lng) * Math.cos((myLocation.lat * Math.PI) / 180);
-                const deg = (Math.atan2(dx, dy) * 180) / Math.PI;
-                setBearing(((deg % 360) + 360) % 360);
+                const target = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+                setBearing((cur) => {
+                    // Compute shortest signed delta on the unit circle (-180..180)
+                    let d = target - cur;
+                    while (d > 180) d -= 360;
+                    while (d < -180) d += 360;
+                    // Slew toward the target by max ~30°/update so a single
+                    // jitter spike can't whip the avatar around.
+                    const maxStep = 30;
+                    const step = Math.max(-maxStep, Math.min(maxStep, d));
+                    return ((cur + step) % 360 + 360) % 360;
+                });
                 setIsWalking(true);
                 clearTimeout(lastLocRef.current._stopTimer);
                 const t = setTimeout(() => setIsWalking(false), 2500);
@@ -130,7 +149,7 @@ export default function MapPage() {
             }
         }
         lastLocRef.current = { ...myLocation };
-    }, [myLocation?.lat, myLocation?.lng]);
+    }, [myLocation?.lat, myLocation?.lng, gpsAccuracy]);
 
     // Daily streak — fetch on mount + after every catch (poll every 60s as fallback)
     const [streak, setStreak] = useState(null);
