@@ -540,30 +540,44 @@ export default function ARPage() {
                     )}
                 </div>
 
-                {/* Spiral throw animation — ball arcs up FROM the bottom-center
-                    swipe origin TO the Pokemon at screen center, shrinking + spinning.
-                    Anchored at top:50% / left:50% so the final {x:0,y:0,scale:0.18}
-                    actually lands ON the Pokemon image (which PokemonOverlay also
-                    renders dead-center). */}
+                {/* Spiral throw animation — ball arcs UP from the bottom-center
+                    swipe origin to the Pokemon at vertical center, shrinking +
+                    spinning. We anchor the ball at `bottom: 8rem` (where the
+                    kid's thumb starts the swipe) and translate UPWARD by a
+                    pixel offset computed from window.innerHeight at throw time
+                    so it lands on the Pokemon regardless of phone height.
+                    Using plain numeric pixels avoids the calc()-with-mixed-units
+                    interpolation gotchas in Framer Motion that briefly made the
+                    ball look like it dropped to the floor. */}
                 <AnimatePresence>
-                    {showBallAnim && (
-                        <motion.div
-                            className="absolute pointer-events-none"
-                            style={{ left: "50%", top: "50%", x: "-50%", y: "-50%" }}
-                            initial={{ x: "-50%", y: "calc(40vh - 50%)", scale: 1, opacity: 1, rotate: 0 }}
-                            animate={{
-                                x:     ["-50%",   "-46%",         "-52%",        "-50%"],
-                                y:     ["calc(40vh - 50%)", "calc(10vh - 50%)", "calc(-12vh - 50%)", "-50%"],
-                                scale: [1, 0.7, 0.4, 0.18],
-                                rotate: [0, 540, 1080, 1620],
-                                opacity: [1, 1, 1, 0.9],
-                            }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.85, ease: [0.45, 0.05, 0.55, 0.95], times: [0, 0.35, 0.7, 1] }}
-                        >
-                            <CampBall ballId={selectedBall} size={96} animate={false} />
-                        </motion.div>
-                    )}
+                    {showBallAnim && (() => {
+                        const vh = (typeof window !== "undefined" && window.innerHeight) ? window.innerHeight : 844;
+                        // Pokemon overlay is centered vertically (top: 50% of viewport).
+                        // Ball starts at bottom: 8rem (~128 px above bottom edge).
+                        // Net vertical travel = (vh / 2) - 128 px.
+                        const land = -((vh / 2) - 128);
+                        return (
+                            <motion.div
+                                className="absolute pointer-events-none"
+                                style={{ left: "calc(50% - 48px)", bottom: "8rem" }}
+                                initial={{ x: 0, y: 0, scale: 1, opacity: 1, rotate: 0 }}
+                                animate={{
+                                    // Slight horizontal sway for spin feel
+                                    x: [0, 14, -6, 0],
+                                    // Up & up & up & lands. Peak is ~12% past the Pokemon
+                                    // for a natural arc, then settles ON the Pokemon.
+                                    y: [0, land * 0.55, land * 1.05, land],
+                                    scale: [1, 0.75, 0.45, 0.22],
+                                    rotate: [0, 540, 1080, 1620],
+                                    opacity: [1, 1, 1, 0.95],
+                                }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.85, ease: [0.45, 0.05, 0.55, 0.95], times: [0, 0.35, 0.7, 1] }}
+                            >
+                                <CampBall ballId={selectedBall} size={96} animate={false} />
+                            </motion.div>
+                        );
+                    })()}
                 </AnimatePresence>
 
                 <AnimatePresence>
