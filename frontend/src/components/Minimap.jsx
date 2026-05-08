@@ -51,7 +51,7 @@ export default function Minimap({ myLocation, spawns = [], bearing = 0, range = 
     const PAD = SIZE * 0.06;
 
     return (
-        <div className="absolute bottom-32 left-3 z-20" data-testid="minimap-container">
+        <div className="absolute bottom-44 left-3 z-20" data-testid="minimap-container">
             <motion.button
                 onClick={() => setExpanded((v) => !v)}
                 whileTap={{ scale: 0.95 }}

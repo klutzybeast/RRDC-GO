@@ -657,8 +657,10 @@ export default function MapPage() {
             {/* Minimap radar — top right (top: 60px) so it sits below the menu */}
             <Minimap myLocation={myLocation} spawns={rankedSpawns} bearing={bearing} range={200} />
 
-            {/* Zoom controls (Pokemon GO style stack) */}
-            <div className="absolute bottom-48 right-4 z-10 flex flex-col gap-2">
+            {/* BOTTOM-RIGHT VERTICAL CONTROL COLUMN — zoom in, zoom out, locate-me,
+                then customize-trainer. Stacks tightly so phone+tablet+desktop all
+                show the same neat single column on the right edge. */}
+            <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-10 flex flex-col gap-2 items-end safe-bottom">
                 <button
                     onClick={() => {
                         if (!mapRef.current) return;
@@ -666,7 +668,7 @@ export default function MapPage() {
                         mapRef.current.setZoom(z);
                         setZoom(z);
                     }}
-                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700 hover:text-river-600"
+                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700"
                     aria-label="Zoom in"
                     data-testid="zoom-in-btn"
                 >
@@ -679,194 +681,83 @@ export default function MapPage() {
                         mapRef.current.setZoom(z);
                         setZoom(z);
                     }}
-                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700 hover:text-river-600"
+                    className="w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center tactile-btn text-slate-700"
                     aria-label="Zoom out"
                     data-testid="zoom-out-btn"
                 >
                     <Minus className="w-5 h-5" />
                 </button>
+                <button
+                    onClick={recenterOnMe}
+                    className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg tactile-btn ${myLocation ? "bg-white text-river-600" : "bg-slate-300 text-slate-600"}`}
+                    title={myLocation ? "Center on me" : "Enable location"}
+                    aria-label="Center on me"
+                    data-testid="locate-me-btn"
+                >
+                    <Crosshair className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => setShowCustomizer(true)}
+                    className="w-11 h-11 rounded-full flex items-center justify-center shadow-lg tactile-btn bg-gradient-to-br from-amber-400 to-amber-500 text-slate-900"
+                    title="Customize my trainer"
+                    aria-label="Customize my trainer"
+                    data-testid="customize-trainer-btn"
+                >
+                    <Shirt className="w-5 h-5" />
+                </button>
             </div>
 
-            {/* Locate me FAB */}
-            <button
-                onClick={recenterOnMe}
-                className={`absolute bottom-32 right-4 z-10 w-12 h-12 rounded-full flex items-center justify-center shadow-lg tactile-btn ${myLocation ? "bg-white text-river-600" : "bg-slate-300 text-slate-600"}`}
-                title={myLocation ? "Center on me" : "Enable location"}
-                data-testid="locate-me-btn"
-            >
-                <Crosshair className="w-5 h-5" />
-            </button>
-
-            {/* Customize avatar FAB */}
-            <button
-                onClick={() => setShowCustomizer(true)}
-                className="absolute bottom-32 right-20 z-10 w-12 h-12 rounded-full flex items-center justify-center shadow-lg tactile-btn bg-gradient-to-br from-amber-400 to-amber-500 text-slate-900"
-                title="Customize my trainer"
-                data-testid="customize-trainer-btn"
-            >
-                <Shirt className="w-5 h-5" />
-            </button>
-
-            {/* Top bar */}
-            <div className={`absolute top-2 sm:top-3 left-1.5 sm:left-3 right-1.5 sm:right-3 flex items-center justify-between gap-1.5 sm:gap-2 z-30 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
-                <div className="relative pointer-events-auto">
-                    <button
-                        onClick={() => setShowAccountMenu((v) => !v)}
-                        className="glass-dark rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 min-w-0 active:scale-95 transition-transform"
-                        data-testid="camper-badge"
-                    >
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                        <span className="truncate max-w-[18vw] sm:max-w-none">
-                            {/* On phones (<640px), show ONLY first name to keep the
-                                top-bar action row inside the viewport. iPad+ shows
-                                the full first+last name. */}
-                            <span className="sm:hidden">{user?.first_name || user?.username || ""}</span>
-                            <span className="hidden sm:inline">
-                                {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+            {/* TOP BAR — left: name + challenges. right: sign out. */}
+            <div className={`absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 z-30 safe-top transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`} aria-hidden={showOnboarding}>
+                <div className="flex items-start justify-between gap-2 pointer-events-auto">
+                    {/* Left: name + challenges side-by-side */}
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <div className="glass-dark rounded-full px-3 py-2 text-xs sm:text-sm font-bold flex items-center gap-2 shrink-0" data-testid="camper-badge">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                            <span className="truncate max-w-[20vw] sm:max-w-none">
+                                <span className="sm:hidden">{user?.first_name || user?.username || ""}</span>
+                                <span className="hidden sm:inline">
+                                    {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                                </span>
                             </span>
-                        </span>
-                        <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-1.5 sm:px-2 py-0.5 shrink-0">{user?.group_name}</span>
+                            <span className="text-[10px] uppercase tracking-widest bg-white/20 rounded-full px-1.5 py-0.5 shrink-0">{user?.group_name}</span>
+                        </div>
+                        <ChallengesCard onRewardClaimed={() => refreshWallet()} />
+                    </div>
+                    {/* Right: sign out — visible, red, never hidden */}
+                    <button
+                        onClick={() => setShowConfirmLogout(true)}
+                        className="glass-dark rounded-full px-3 py-2 text-xs font-black flex items-center gap-1.5 bg-rose-500/95 text-white ring-1 ring-rose-300 shadow-lg shrink-0"
+                        data-testid="logout-btn"
+                        aria-label="Sign out"
+                    >
+                        <LogOut className="w-4 h-4" />
+                        <span className="hidden sm:inline">Sign out</span>
                     </button>
-                    {showAccountMenu && (
-                        <>
-                            {/* Backdrop catches outside taps to close the menu */}
-                            <div
-                                className="fixed inset-0 z-20"
-                                onClick={() => setShowAccountMenu(false)}
-                                aria-hidden="true"
-                            />
-                            <div className="absolute top-full left-0 mt-2 w-48 rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 overflow-hidden z-30" data-testid="account-menu">
-                                <button
-                                    onClick={() => { setShowAccountMenu(false); setShowConfirmLogout(true); }}
-                                    className="w-full text-left px-4 py-3 hover:bg-rose-50 active:bg-rose-100 flex items-center gap-2 text-sm font-bold text-rose-600"
-                                    data-testid="logout-btn"
-                                >
-                                    <LogOut className="w-4 h-4" />
-                                    Sign out
-                                </button>
-                            </div>
-                        </>
-                    )}
                 </div>
-                <div className="flex gap-1 sm:gap-2 pointer-events-auto items-center">
+                {/* Status pills row (small) — under the name bar */}
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap pointer-events-auto">
                     <BallCounter
                         balance={wallet?.balance}
                         delta={ballDelta}
                         onClick={() => setShowOutOfBalls(true)}
                     />
-                    <button
-                        onClick={() => setShowOnboarding(true)}
-                        className="glass-dark rounded-full p-2.5"
-                        aria-label="Help"
-                        data-testid="show-onboarding-btn"
-                    >
-                        <HelpCircle className="w-5 h-5" />
-                    </button>
-                    <button
-                        onClick={() => nav("/leaderboard")}
-                        className="glass-dark rounded-full p-2.5"
-                        aria-label="Leaderboard"
-                        data-testid="open-leaderboard-btn"
-                        title="Weekly leaderboard"
-                    >
-                        <Trophy className="w-5 h-5" />
-                    </button>
-                    <button
-                        onClick={() => nav("/friends")}
-                        className="glass-dark rounded-full p-2.5"
-                        aria-label="Friends, trades & gifts"
-                        data-testid="open-friends-btn"
-                        title="Friends, trades & gifts"
-                    >
-                        <UsersIcon className="w-5 h-5" />
-                    </button>
-                    <button
-                        onClick={() => nav("/collection")}
-                        className="glass-dark rounded-full px-3 py-2 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2"
-                        data-testid="open-collection-btn"
-                        aria-label="Pokedex"
-                    >
-                        <BackpackIcon className="w-5 h-5" />
-                        <span className="hidden sm:inline">Pokedex</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* Confirm logout dialog — protects against accidental kid taps */}
-            {showConfirmLogout && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="confirm-logout-modal">
-                    <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl">
-                        <div className="font-heading text-xl font-bold text-slate-900 mb-1">Sign out?</div>
-                        <div className="text-sm text-slate-600 mb-4">You'll need to pick your name again next time you play.</div>
-                        <div className="flex gap-2 justify-end">
-                            <button
-                                onClick={() => setShowConfirmLogout(false)}
-                                className="px-4 h-11 rounded-2xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700"
-                                data-testid="confirm-logout-cancel"
-                            >
-                                Stay logged in
-                            </button>
-                            <button
-                                onClick={() => { setShowConfirmLogout(false); handleLogout(); }}
-                                className="px-4 h-11 rounded-2xl bg-rose-500 hover:bg-rose-600 font-bold text-white"
-                                data-testid="confirm-logout-confirm"
-                            >
-                                Sign out
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Tools layer — split into a LEFT column (bigger interactive
-                panels: events, buddy, daily challenges) and a RIGHT column
-                (small status pills: streak, nearby, inventory, GPS, mute).
-                The middle of the map stays clear for the avatar + Pokemon.
-                The supervisor weekly tracker has been removed entirely
-                (lived in /collection now if directors need to see progress). */}
-            <div
-                className={`absolute top-16 left-2 right-2 sm:left-3 sm:right-3 z-10 flex items-start justify-between gap-2 sm:gap-3 transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : "pointer-events-none"}`}
-                aria-hidden={showOnboarding}
-            >
-                {/* LEFT column — bigger interactive panels, stacked. */}
-                <div className="flex flex-col gap-2 items-start pointer-events-auto max-w-[58%] sm:max-w-[44%]">
-                    <ActiveEventBanner />
-                    <BuddyStrip onTap={() => nav("/collection")} />
-                    <ChallengesCard onRewardClaimed={() => refreshWallet()} />
-                </div>
-
-                {/* RIGHT column — small status pills, stacked. */}
-                <div className="flex flex-col gap-1.5 sm:gap-2 items-end pointer-events-auto">
                     {streak && (streak.current_streak > 0 || streak.caught_today) && (
                         <motion.div
                             initial={{ scale: 0.85, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             className="relative bg-white/95 backdrop-blur-sm rounded-full px-2.5 py-1.5 shadow-lg flex items-center gap-1"
                             data-testid="streak-pill"
-                            title={streak.at_risk ? "Catch one today to keep your streak alive!" : "Daily catch streak"}
+                            title={streak.at_risk ? "Catch one today!" : "Daily streak"}
                         >
-                            <motion.span
-                                className="text-sm"
-                                animate={streak.caught_today ? { scale: [1, 1.18, 1] } : { scale: 1 }}
-                                transition={{ repeat: streak.caught_today ? Infinity : 0, duration: 1.6 }}
-                            >🔥</motion.span>
-                            <span className="text-xs font-black text-slate-900 tabular-nums">
-                                {streak.current_streak}
-                            </span>
+                            <span className="text-sm">🔥</span>
+                            <span className="text-xs font-black text-slate-900 tabular-nums">{streak.current_streak}</span>
                             <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">d</span>
                             {streak.at_risk && !streak.caught_today && (
-                                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full px-1.5 h-[18px] min-w-[18px] flex items-center justify-center" data-testid="streak-at-risk">
-                                    !
-                                </span>
+                                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full px-1.5 h-[18px] min-w-[18px] flex items-center justify-center" data-testid="streak-at-risk">!</span>
                             )}
                         </motion.div>
                     )}
-                    <NearbyPanel
-                        spawns={spawns}
-                        myLocation={myLocation}
-                        catchRadius={catchRadius}
-                        onPick={openCatchFor}
-                    />
                     {inventory && (() => {
                         const razz = Number(inventory.items?.razz_berry || 0);
                         const lucky = Number(inventory.items?.lucky_egg || 0);
@@ -875,7 +766,6 @@ export default function MapPage() {
                         if (razz === 0 && lucky === 0 && !razzPending && !luckyActive) return null;
                         return (
                             <div
-                                title="Use these on the AR catch screen — tap a Pokémon, then tap the items button"
                                 className="flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2 py-1 shadow ring-1 ring-slate-200"
                                 data-testid="map-inventory-pill"
                             >
@@ -904,7 +794,6 @@ export default function MapPage() {
                         }[tier];
                         return (
                             <div
-                                title={tier === "weak" ? "GPS is weak — move to open sky for better catches" : `GPS accuracy ±${acc} m`}
                                 className={`flex items-center gap-1 rounded-full ${palette.bg} ${tier === "ok" ? "" : "text-white"} text-[10px] font-black uppercase tracking-wider px-2 py-1 shadow ring-1 ${palette.ring}`}
                                 data-testid="gps-accuracy-badge"
                                 data-tier={tier}
@@ -914,8 +803,93 @@ export default function MapPage() {
                             </div>
                         );
                     })()}
-                    <MuteToggle />
                 </div>
+                {/* Active event banner — only when one is live */}
+                <div className="mt-2 pointer-events-auto">
+                    <ActiveEventBanner />
+                </div>
+            </div>
+
+            {/* RIGHT-SIDE NAV RAIL — vertical column of action icons.
+                Sits below sign out, vertically aligned with the name row. */}
+            <div className={`absolute top-16 sm:top-20 right-2 sm:right-3 z-20 flex flex-col gap-2 pointer-events-auto transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : ""}`} aria-hidden={showOnboarding}>
+                <button
+                    onClick={() => setShowOnboarding(true)}
+                    className="glass-dark rounded-full p-2.5"
+                    aria-label="Help"
+                    data-testid="show-onboarding-btn"
+                >
+                    <HelpCircle className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => nav("/leaderboard")}
+                    className="glass-dark rounded-full p-2.5"
+                    aria-label="Leaderboard"
+                    data-testid="open-leaderboard-btn"
+                >
+                    <Trophy className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => nav("/friends")}
+                    className="glass-dark rounded-full p-2.5"
+                    aria-label="Friends"
+                    data-testid="open-friends-btn"
+                >
+                    <UsersIcon className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => nav("/collection")}
+                    className="glass-dark rounded-full p-2.5"
+                    aria-label="Pokedex"
+                    data-testid="open-collection-btn"
+                >
+                    <BackpackIcon className="w-5 h-5" />
+                </button>
+                <MuteToggle />
+            </div>
+
+            {/* Confirm logout dialog — protects against accidental kid taps */}
+            {showConfirmLogout && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="confirm-logout-modal">
+                    <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+                        <div className="font-heading text-xl font-bold text-slate-900 mb-1">Sign out?</div>
+                        <div className="text-sm text-slate-600 mb-4">You'll need to pick your name again next time you play.</div>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => setShowConfirmLogout(false)}
+                                className="px-4 h-11 rounded-2xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700"
+                                data-testid="confirm-logout-cancel"
+                            >
+                                Stay logged in
+                            </button>
+                            <button
+                                onClick={() => { setShowConfirmLogout(false); handleLogout(); }}
+                                className="px-4 h-11 rounded-2xl bg-rose-500 hover:bg-rose-600 font-bold text-white"
+                                data-testid="confirm-logout-confirm"
+                            >
+                                Sign out
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BOTTOM-LEFT STACK — minimap radar is rendered separately at
+                bottom: 11rem; this column sits BELOW it (closer to the bottom
+                edge) with Nearby first, then BuddyStrip beneath it. Bottom of
+                the column is anchored above the safe-area inset. */}
+            <div
+                className={`absolute left-2 sm:left-3 z-10 flex flex-col gap-2 items-start pointer-events-auto transition-opacity ${showOnboarding ? "opacity-0 pointer-events-none" : ""}`}
+                style={{ bottom: "0.75rem" }}
+                aria-hidden={showOnboarding}
+            >
+                <NearbyPanel
+                    spawns={spawns}
+                    myLocation={myLocation}
+                    catchRadius={catchRadius}
+                    onPick={openCatchFor}
+                />
+                <BuddyStrip onTap={() => nav("/collection")} />
             </div>
 
             {/* Bottom hud — kids tap a Pokémon directly on the map to catch it,
