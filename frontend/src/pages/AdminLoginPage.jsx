@@ -52,6 +52,10 @@ export default function AdminLoginPage() {
                                 onChange={(e) => setUsername(e.target.value)}
                                 className="h-12 rounded-2xl bg-slate-900 border-slate-700 text-white"
                                 required
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                autoComplete="username"
+                                spellCheck={false}
                                 data-testid="admin-username-input"
                             />
                         </div>
@@ -63,6 +67,10 @@ export default function AdminLoginPage() {
                                 onChange={(e) => setPassword(e.target.value)}
                                 className="h-12 rounded-2xl bg-slate-900 border-slate-700 text-white"
                                 required
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                autoComplete="current-password"
+                                spellCheck={false}
                                 data-testid="admin-password-input"
                             />
                         </div>
