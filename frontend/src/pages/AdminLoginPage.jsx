@@ -61,18 +61,30 @@ export default function AdminLoginPage() {
                         </div>
                         <div>
                             <Label className="text-slate-300">Password</Label>
-                            <Input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="h-12 rounded-2xl bg-slate-900 border-slate-700 text-white"
-                                required
-                                autoCapitalize="off"
-                                autoCorrect="off"
-                                autoComplete="current-password"
-                                spellCheck={false}
-                                data-testid="admin-password-input"
-                            />
+                            <div className="relative">
+                                <Input
+                                    type={showPassword ? "text" : "password"}
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="h-12 rounded-2xl bg-slate-900 border-slate-700 text-white pr-12"
+                                    required
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    autoComplete="current-password"
+                                    spellCheck={false}
+                                    data-testid="admin-password-input"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword((v) => !v)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full text-slate-400 hover:text-white active:scale-95 transition"
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                    data-testid="admin-password-toggle"
+                                    tabIndex={-1}
+                                >
+                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                </button>
+                            </div>
                         </div>
                         {err && <div className="text-red-400 text-sm" data-testid="admin-login-error">{err}</div>}
                         <Button type="submit" disabled={loading} className="tactile-btn w-full h-12 rounded-2xl bg-river-500 hover:bg-river-600 text-white font-heading font-bold" data-testid="admin-login-submit">
