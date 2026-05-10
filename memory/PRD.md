@@ -820,3 +820,23 @@ User feedback: "they have to be within 10 feet of it" + "its just a dot on the m
 - 10 ft (3 m) is tight — if directors see GPS jitter under tree cover, the new "Pokéstop reach distance" slider lets them dial up to 15 m without a redeploy.
 - `myLocation` in MapPage uses `watchPosition` which already handles continuous updates, so the cube's "TAP TO SPIN!" state pops the moment a kid walks into range.
 
+
+
+## 2026-02-26 — DialogFooter pinning fix
+
+### Problem
+On long admin forms (Bulk Upload, Edit Pokemon, Bulk Grant) the global mobile
+scroll patch added on 2026-02-25 caused the DialogFooter (Save/Cancel/Upload
+buttons) to scroll *with* the content instead of staying pinned at the bottom.
+On phones a kid could lose the action buttons below the fold.
+
+### Fix
+`/app/frontend/src/components/ui/dialog.jsx` — `DialogContent` now uses
+`React.Children.toArray` to split out any `DialogFooter` children and renders
+them as a sibling of the scrollable body inside the flex column. The footer
+sits in a `flex-shrink-0` strip with `border-t`, `bg-background`, padding, and
+an `env(safe-area-inset-bottom)` cushion so it stays glued to the bottom of
+the dialog at all viewport heights — including notched iPhones.
+
+Verified visually on a 414×896 viewport: Bulk Upload dialog footer stays
+pinned, body scrolls independently. No JS lint issues.
