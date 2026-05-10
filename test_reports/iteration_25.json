@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 25 — verified the user's #1 complaint ('can't scroll the Edit Pokemon dialog') is FIXED on iPhone 390x844 portrait and iPad 820x1180 portrait after the shadcn DialogContent base patch. Edit Pokemon dialog: scrollH=1325 / clientH=818, programmatic scroll moves content (didScroll=true), Save button reaches viewport (y=735, bottom=771, in 844vh). iPad: dialog 512x1062 fits in 820x1180 with internal scroll (sh=1261, ch=1060). No horizontal overflow on /admin (sw=cw=390). bulk-upload-dialog (which keeps its own `flex flex-col max-h-[90vh]` override) renders correctly empty-state at 374x535 and the inner DialogContent wrapper (overflow-y-auto p-6 flex-1) properly contains the body — but THE FOOTER IS NOW INSIDE THE OUTER SCROLLABLE WRAPPER (footerInsideOuter=true), meaning when bulkItems is large the Close/Upload buttons + progress bar will scroll out of view (regression vs the previous pinned-footer pattern). Backend smoke: 7/8 PASS — 1 REAL BUG: POST /api/admin/wallet/bulk-grant accepts amount=-3 and returns 200 with total_balls_issued:-45 (deducted from all 15 campers in B01). I restored +2 per camper to keep balances roughly level for next testing.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/admin/wallet/bulk-grant", "issue": "Accepts negative `amount` values without validation. Sent {group_code:'B01', ball_type:'poke_ball', amount:-3} → 200 OK, server actually decremented every camper's wallet by 3 (response: campers_updated:15, total_balls_issued:-45). A typo or fat-finger by an admin could wipe out a whole group's balance. Add Pydantic constraint: amount must be a positive integer (>= 1).", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DialogFooter (all dialogs)", "issue": "After the DialogContent patch, DialogFooter renders INSIDE the new `<div class='overflow-y-auto p-6 flex-1 min-h-0'>` wrapper, so it scrolls together with the body instead of staying pinned at the bottom of the dialog. For long forms (Edit Pokemon, Bulk Upload, Bulk Grant) the camper-director must scroll down to find Save/Close. Acceptable for short dialogs; visible regression on bulk-upload where Close/Upload + progress used to be sticky.", "selector": "[role='dialog'] .border-t, [role='dialog'] [class*='DialogFooter']", "priority": "MEDIUM"},
+      {"component": "PokemonTab.jsx bulk-upload-dialog (line 511)", "issue": "Has its own `flex flex-col max-h-[90vh]` override on DialogContent AND an inner `<div class='space-y-3 ... overflow-y-auto pr-1 flex-1 min-h-0'>` body scroller — but that body scroller is now nested inside the new shadcn wrapper which is itself the scroll layer. The inner div's `flex-1 min-h-0` is a no-op because its actual parent (the wrapper div) is not a flex container. Result: only one scroller actually engages (the outer wrapper). Functionally OK for a short list, but the carefully-built sticky-footer + double-scroll layout the dialog was designed around is broken. Recommend either (a) drop the inner overflow-y-auto wrapper in bulk-upload-dialog (let the new shadcn one handle it) AND move the footer outside the wrapper, OR (b) keep this dialog's bespoke layout but `<DialogContent>` would need an opt-out prop.", "selector": "[data-testid='bulk-upload-dialog']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration25.py",
+    "/app/test_reports/pytest/iteration25_results.xml"
+  ],
+  "action_items": [
+    "BACKEND HIGH: Add `amount: PositiveInt` (or Field(gt=0)) to the bulk-grant Pydantic body model. Currently a negative amount silently subtracts from every camper.",
+    "FRONTEND MEDIUM: Decide on DialogFooter pinning strategy. Options: (1) move DialogFooter OUTSIDE the new inner wrapper (render it as a sibling at the bottom of DialogContent's flex column) so it stays pinned; (2) accept scrolling-with-content and do nothing. Option 1 matches user expectation for long forms.",
+    "FRONTEND MEDIUM: Audit bulk-upload-dialog (PokemonTab line 511) and TrainerCustomizer line 97 — both had bespoke `flex flex-col max-h-[90vh]` + inner overflow setups that now nest awkwardly inside the new shadcn wrapper. Either remove their custom layout (let the shared base handle it) or carve out an opt-out variant.",
+    "OPTIONAL: After fixing footer pinning, add a one-liner Playwright assertion to verify Save/Cancel buttons are within viewport before scrolling on iPhone 390 — guards against future DialogContent regressions."
+  ],
+  "critical_code_review_comments": [
+    "dialog.jsx: The new wrapper `<div class='overflow-y-auto p-6 flex-1 min-h-0 [&>:not(:first-child)]:mt-4'>` ALSO consumes the DialogFooter as a child, so footers are no longer pinned. Recommended fix: detect/extract DialogFooter children and render them OUTSIDE the scrollable wrapper. Cleanest API: a separate `<DialogBody>` slot pattern (children that are not DialogHeader/DialogFooter go in the scroll area), but that's a bigger refactor.",
+    "dialog.jsx: `[&>:not(:first-child)]:mt-4` adds a top margin to every direct child after the first. Some dialogs (Edit Pokemon's `<div class='space-y-4'>`) already manage their own spacing; the extra mt-4 between DialogHeader and the body is desirable but the rule will collide with dialogs that expected zero gap.",
+    "dialog.jsx: Outer `overflow-hidden` + inner `overflow-y-auto` is correct, but width clamp `w-[calc(100%-1rem)]` applied with `max-w-lg` defaults to 32rem on tablets — fine for most but might feel cramped for the bulk-upload-dialog (max-w-3xl override) on iPad portrait; visually verified it still fits at 512x1062.",
+    "PokemonTab.jsx line 511: bulk-upload-dialog DialogContent override `max-w-3xl max-h-[90vh] flex flex-col` redundantly re-declares flex flex-col + max-h that the new base already has. Dead code now — but harmless.",
+    "Wallet bulk-grant endpoint missing positive-integer validation. Single line fix server-side.",
+    "Pokemon list returns 62 rows, all editable. Confirmed admin auth flow + horizontal-scroll-free layout on /admin at 390 portrait."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration25.py (new — 8 tests, 7 PASS, 1 documents bulk-grant negative-amount bug)",
+    "/app/test_reports/pytest/iteration25_results.xml (new)",
+    "/app/test_reports/iteration_25.json (new)"
+  ],
+  "success_rate": {
+    "backend": "87.5% (7/8 — the failing test is intentional, documents the negative-amount validation bug)",
+    "frontend": "Edit Pokemon scroll fix: 100% verified on iPhone + iPad. DialogFooter pinning: regression observed."
+  },
+  "test_credentials": "Admin: admin / Camp1993. Camper: GET /api/groups/B01/campers → POST /api/camper/login {camper_id} (used campers[0]).",
+  "seed_data_creation": "Granted +1 then +2 poke_balls to all B01 campers during testing; net +0 after the -3 negative-amount bug repro. No new seed records.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "User's primary complaint (Edit Pokemon dialog not scrollable on iPad/iPhone) is FIXED — verified programmatically on both viewports. Remaining concerns are (1) backend validation gap on /api/admin/wallet/bulk-grant accepting negative amounts and (2) frontend regression where DialogFooter is no longer pinned to the bottom on long dialogs (it now scrolls with the body). Skipped (could not test in iframe): camper /map flow due to geolocation permission gate, AR catch flow. CatchSuccessModal and bank-detail-modal in /collection — not opened in this run; the dialog.jsx base fix should benefit them but no on-screen verification done. Recommend a follow-up pass with the geolocation localStorage workaround `rrdc:onboarded=1` to audit the camper-side modals.",
+  "rca of the issue": "Original bug: Edit Pokemon DialogContent had no max-height + no overflow-y-auto, so on a 390x844 viewport the dialog rendered taller than the screen and the body was clipped — the user couldn't scroll because the dialog itself wasn't scrollable. Fix applied to /app/frontend/src/components/ui/dialog.jsx: outer DialogContent now has `flex flex-col w-[calc(100%-1rem)] max-w-lg max-h-[calc(100vh-1.5rem)] sm:max-h-[90vh] ... overflow-hidden` and wraps {children} in `<div class='overflow-y-auto p-6 flex-1 min-h-0'>`. Verified: scrollH=1325 vs clientH=818 → canScroll=true, programmatic scrollTop=9999 succeeded → didScroll=true. Save button bottom y=771 ≤ 844vh after scrolling. Side effect: DialogFooter (rendered as a child of DialogContent) is now also inside the scrollable wrapper instead of pinned beneath it; footers in long dialogs (bulk-upload, bulk-grant) scroll with content. Mitigation: render DialogFooter as a sibling of (not a child of) the scrollable wrapper inside DialogContent."
+}

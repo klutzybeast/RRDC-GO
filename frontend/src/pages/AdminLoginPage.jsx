@@ -5,12 +5,13 @@ import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { useAdminAuth } from "../contexts/AuthContext";
 import { motion } from "framer-motion";
-import { Shield } from "lucide-react";
+import { Shield, Eye, EyeOff } from "lucide-react";
 
 export default function AdminLoginPage() {
     const { admin, login } = useAdminAuth();
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState("");
     const nav = useNavigate();
